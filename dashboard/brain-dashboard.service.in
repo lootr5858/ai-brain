@@ -1,0 +1,21 @@
+[Unit]
+Description=Brain Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+WorkingDirectory=@BRAIN_DASHBOARD_ENGINE@
+ExecStart=:env @BRAIN_DASHBOARD_PYTHON@ @BRAIN_DASHBOARD_SERVER@@BRAIN_DASHBOARD_CONFIG@
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+CacheDirectory=brain-engine/dashboard
+StateDirectory=brain-engine/brain-mcp
+ReadWritePaths=@BRAIN_DASHBOARD_USER@
+UMask=0077
+
+[Install]
+WantedBy=default.target

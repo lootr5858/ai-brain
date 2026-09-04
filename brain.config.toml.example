@@ -1,0 +1,16 @@
+[paths]
+brain = "."
+engine = "engine"
+agents = "agents"
+user = "user"
+
+[engine.fanout]
+mode = "symlink"
+
+[engine.fanout.targets]
+claude-code = "~/.claude/skills"
+agents-dir = "~/.agents/skills"
+
+[engine.ops.dashboard]
+host = "127.0.0.1"
+port = 8765

@@ -1,0 +1,10 @@
+[Unit]
+Description=Remote brain-MCP
+
+[Service]
+Type=exec
+ExecStart=:env @BRAIN_MCP_PYTHON@ @BRAIN_MCP_HTTP@@BRAIN_MCP_CONFIG@ --port 8787
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

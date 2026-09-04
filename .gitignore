@@ -1,0 +1,11 @@
+# engine/ is a public repo. Never track secrets or machine-local state.
+.env
+*.key
+*.pem
+__pycache__/
+*.pyc
+.venv/
+.superpowers/
+docs/superpowers/
+# brain.config.toml lives at the container root, not here — but guard anyway.
+brain.config.toml

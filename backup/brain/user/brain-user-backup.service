@@ -1,0 +1,13 @@
+[Unit]
+Description=Encrypted backup of brain user data
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/brain-os/brain-user-backup.env
+Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/usr/bin/python3 ${BRAIN_ENGINE}/backup/brain/user/backup.py
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
