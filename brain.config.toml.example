@@ -6,10 +6,20 @@ user = "user"
 
 [engine.fanout]
 mode = "symlink"
+state = ".brain-install/state.json"
 
 [engine.fanout.targets]
 claude-code = "~/.claude/skills"
-agents-dir = "~/.agents/skills"
+codex-dir = "~/.agents/skills"
+
+[engine.fanout.plugins.claude-code]
+runtime = "claude-code"
+
+[engine.fanout.plugins.codex-dir]
+runtime = "codex"
+marketplace_name = "brain-local"
+marketplace = "~/.local/share/brain/codex-marketplace"
+executable = "codex"
 
 [engine.ops.dashboard]
 host = "127.0.0.1"

@@ -98,7 +98,7 @@ brain/
 | Engine path | Purpose |
 | --- | --- |
 | `templates/` | Generic root, agent, and user starting files |
-| `install/` | Adapters, skill fan-out, MCP, and dashboard commands |
+| `install/` | Adapters, skill/plugin installation, MCP, and dashboard commands |
 | `lib/` | Shared engine behavior |
 | `servers/brain-mcp/` | Local STDIO and optional remote HTTP entrypoints |
 | `dashboard/` | Local dashboard server and interface |
@@ -122,10 +122,20 @@ user = "user"
 
 [engine.fanout]
 mode = "symlink"
+state = ".brain-install/state.json"
 
 [engine.fanout.targets]
 claude-code = "~/.claude/skills"
-agents-dir = "~/.agents/skills"
+codex-dir = "~/.agents/skills"
+
+[engine.fanout.plugins.claude-code]
+runtime = "claude-code"
+
+[engine.fanout.plugins.codex-dir]
+runtime = "codex"
+marketplace_name = "brain-local"
+marketplace = "~/.local/share/brain/codex-marketplace"
+executable = "codex"
 
 [engine.ops.dashboard]
 host = "127.0.0.1"
@@ -138,8 +148,13 @@ port = 8765
 | `paths.engine` | Engine checkout |
 | `paths.agents` | Agent store |
 | `paths.user` | User store |
-| `engine.fanout.mode` | `symlink` or `copy` |
-| `engine.fanout.targets.*` | Named skill destinations |
+| `engine.fanout.mode` | `symlink` or `copy` for standalone skills and Claude plugins |
+| `engine.fanout.state` | Installer ownership and recovery record; default: `<brain>/.brain-install/state.json` |
+| `engine.fanout.targets.*` | Named standalone skill destinations; Claude plugins use the corresponding destination |
+| `engine.fanout.plugins.<target>.runtime` | `claude-code` or `codex`; target must also exist in `targets` |
+| `engine.fanout.plugins.<target>.marketplace_name` | Unique name for an installer-owned Codex marketplace |
+| `engine.fanout.plugins.<target>.marketplace` | Dedicated local Codex marketplace directory |
+| `engine.fanout.plugins.<target>.executable` | Codex executable name or path; default: `codex` |
 | `engine.ops.dashboard.host` | Dashboard bind host; only loopback names are accepted |
 | `engine.ops.dashboard.port` | Dashboard port |
 | `engine.ops.dashboard.public_origin` | Optional external HTTPS origin |
@@ -165,20 +180,106 @@ Add task-specific material only when needed:
 
 - `rules/` for domain rules routed by the agent bootstrap.
 - `skills/<name>/SKILL.md` for reusable task procedures.
+- `plugins/<directory>/` for complete plugins, including their manifests, bundled skills, and hooks.
 - `reference/` for explicitly requested lookup material.
 
-### Skill fan-out — optional
+### Skill and plugin installation — optional
 
-Fan-out requires one skill directory per entry in `agents/skills/skills.toml`. It defaults to dry-run and refuses unsafe skills or unmanaged destination collisions.
+The installer discovers packages directly from the configured agent store. There is no `skills.toml` requirement; an old index is ignored.
 
-After adding skills, review and apply one sequence:
+```text
+agents/
+├── skills/
+│   └── focus/
+│       └── SKILL.md
+└── plugins/
+    └── scanline/
+        ├── .claude-plugin/plugin.json
+        ├── .codex-plugin/plugin.json
+        ├── skills/
+        │   └── scanline/SKILL.md
+        └── hooks/hooks.json
+```
+
+Only immediate skill directories with `SKILL.md` are standalone skills. Plugin roots belong under `plugins/`; their manifest names identify them even when the directory names differ. Each application uses its own manifest. A missing manifest for a selected application produces `SKIP`; malformed manifests, duplicate plugin names, missing resources, and unmanaged destination collisions produce refusals. Missing or empty source directories are allowed. Plugin-contained skills are not installed a second time as standalone skills.
+
+Standalone skill validation and the existing content scanner remain in place. The scanner skips `.git` directories and worktree pointer files; all other skill files retain the existing content and binary-file checks. Plugins use structural validation of manifests, skill metadata, hook declarations, explicit bundled command-resource paths, and internal symlinks; legitimate binary assets are allowed. This does not execute or audit the behavior of plugin scripts. Repository metadata such as `.git` is excluded from plugin snapshots and content fingerprints. External or broken plugin symlinks are refused so snapshots remain self-contained.
+
+#### Application behavior
+
+| Content | Claude Code | Codex |
+| --- | --- | --- |
+| Standalone skills | Link/copy to the configured destination, normally `~/.claude/skills` | Link/copy to the documented user location, `~/.agents/skills` |
+| Complete plugins | Link/copy the whole plugin into the Claude skill destination; requires skills-directory plugin support | Copy a managed snapshot into the dedicated Brain marketplace, register it, then install through the native CLI |
+| Source edits | Linked content remains live; reload plugin components when needed. Rerun for copied content | Rerun the installer: changed content triggers native removal and reinstallation to refresh the cache |
+
+Claude's [skills-directory plugin documentation](https://code.claude.com/docs/en/plugins-reference#skills-directory-plugins) describes in-place discovery. Use a Claude Code version that supports it (the locally checked 2.1.269 help advertises this feature). Restart or use `/reload-plugins` after changing hooks or other plugin components. Actual discovery of linked plugins should be checked in your application after installation.
+
+Codex requires an executable supporting the documented [plugin and marketplace commands](https://learn.chatgpt.com/docs/developer-commands#codex-plugin). Its native settings and cache location follow the CLI environment, including `CODEX_HOME`; this is separate from the standalone skill destination. Codex plugins are cached installations, not live links. The installer detects changes with content fingerprints and never edits source plugin manifests or versions. An unchanged, disabled plugin stays disabled; refreshing changed content reinstalls it. Native authentication/setup, if requested, must be completed in the application.
+
+Hooks stay inside their plugin; the installer does not merge them into global hook settings or execute them. The preview lists hook events. Codex requires [review and trust of plugin hook definitions](https://learn.chatgpt.com/docs/hooks#plugin-bundled-hooks). Start a new task after installing or refreshing a Codex plugin and complete that review before expecting hooks to run.
+
+Claude skills normally appear as `/skill-name`; plugin skills use `/plugin-name:skill-name`, unless hidden by their configuration. Codex skills use its skill selector and `$` mentions (`/skills` in CLI/IDE). Hooks are automatic event handlers, not individual slash commands. See [Claude skills](https://code.claude.com/docs/en/skills) and [Codex skills](https://learn.chatgpt.com/docs/build-skills).
+
+#### Preview and apply manually
+
+Run these from the engine directory, after reviewing your `brain.config.toml`:
 
 ```bash
 .venv/bin/python install/skills.py --config ../brain.config.toml --dry-run
 .venv/bin/python install/skills.py --config ../brain.config.toml --apply
 ```
 
-Run `install/skills.py --help` for target filtering, scanning, and uninstall options. Select copy mode in `brain.config.toml`.
+No flags means preview. `--dry-run` overrides `--apply`. Preview performs no writes and launches no native CLI, so native marketplace/installed-plugin ownership checks are deferred until `--apply`, before any placements. Installation stops if those checks fail. Structural refusals block the whole plan.
+
+Select just one kind or application:
+
+```bash
+.venv/bin/python install/skills.py --config ../brain.config.toml --kind skills --target codex-dir --dry-run
+.venv/bin/python install/skills.py --config ../brain.config.toml --kind plugins --target claude-code --dry-run
+.venv/bin/python install/skills.py --config ../brain.config.toml --kind plugins --target codex-dir --dry-run
+```
+
+Replace `--dry-run` with `--apply` only after reviewing the output. `--kind` accepts `skills`, `plugins`, or `all` (default); `--target` is repeatable and refers to your configured names. Old configurations without plugin runtime tables still install standalone skills. Names such as `agents-dir` remain usable when configured; update commands to match your chosen names.
+
+When standalone skills are applied to `claude-code`, the installer preserves unrelated Claude settings and sets `skillListingBudgetFraction` to `0.025`. Its settings destination defaults to `~/.claude/settings.json`; use `--settings FILE` for another location. Plugin-only installation does not make this settings change. For temporary standalone skill destinations, `--root DIR --kind skills` also redirects state and default settings under that directory. `--root` cannot redirect a native plugin install and is rejected for `plugins` or `all`.
+
+The existing scanner remains available separately:
+
+```bash
+.venv/bin/python install/skills.py --scan ../agents/skills/focus
+```
+
+#### Removal and recovery
+
+```bash
+.venv/bin/python install/skills.py --config ../brain.config.toml --kind plugins --uninstall --dry-run
+.venv/bin/python install/skills.py --config ../brain.config.toml --kind plugins --uninstall --apply
+```
+
+Omit `--kind plugins` to remove both kinds, or add `--target` to narrow removal. Uninstall uses the ownership record, so it can remove installed packages whose sources have since been deleted. It also recognizes legacy standalone links pointing to current Brain sources and legacy marked copies. Source files, unrelated installations, and unrelated settings remain untouched; uninstall does not reset the Claude listing budget.
+
+Keep `.brain-install/state.json` while installations exist. Do not edit managed copies, snapshots, or the generated marketplace catalog: changes there are refused instead of overwritten. Edit sources under `agents/`. Uninstall before changing an installed package's source or destination; then update configuration and install again. Changing a target path does not migrate older links automatically.
+
+Native failures can leave earlier operations completed. The installer stops, reports failure, and records pending native operations. Inspect the output and ownership record, rerun preview, resolve the reported cause, and retry manually. Uninstall removes only tracked native plugins; the dedicated marketplace is removed only when no other installed plugins remain. Unknown files are preserved. Actual plugin activation and hook trust remain application-controlled.
+
+#### Verification
+
+The normal checks exercise helpers against temporary fixtures and mocked native JSON responses. They do not run `skills.py`, an agent CLI, or any hook:
+
+```bash
+.venv/bin/python tests/test_fanout.py
+.venv/bin/python tests/test_plugins.py
+.venv/bin/python tests/test_config.py
+```
+
+`tests/smoke-skill-fanout.sh` includes helper tests and repository hygiene checks. A separate, optional test launches the CLI only against temporary standalone skill fixtures; it is not part of the smoke suite:
+
+```bash
+.venv/bin/python tests/test_fanout_cli.py --run-cli-tests
+```
+
+After your real manual installation, verify that the intended skills appear, invoke one bundled skill, inspect the application's hook configuration/trust state, and trigger only the hook events you intend to test. Mocked tests cannot establish application discovery, authentication, or hook execution on your machine.
 
 ## 7. Create your user store
 

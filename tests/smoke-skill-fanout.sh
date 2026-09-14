@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Skill-fanout smoke - units, hermetic installer checks, and public-repo hygiene.
+# Skill/plugin smoke - helpers and mocked native calls only; never launches skills.py.
 set -euo pipefail
 ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo "[skill-fanout smoke] units"
 python3 "$ENGINE/tests/test_fanout.py"
+python3 "$ENGINE/tests/test_plugins.py"
 
 echo "[skill-fanout smoke] public repo hygiene"
 bad_private_store='\.private-'"data"

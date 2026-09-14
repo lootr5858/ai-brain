@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Skill fan-out library - pure functions over agents/skills + runtime targets."""
-import re, tomllib
+import os
+import re
 from pathlib import Path
 
 ENGINE = Path(__file__).resolve().parents[1]
@@ -10,17 +11,15 @@ SUPPORT_DIRS = {"references", "templates", "assets", "scripts"}
 def skills_root(cfg):
     return Path(cfg["paths"]["agents"]) / "skills"
 
-def load_index(cfg):
-    with open(skills_root(cfg) / "skills.toml", "rb") as f:
-        return tomllib.load(f)
-
 def load_skills(cfg):
     root = skills_root(cfg)
-    dirs = {d.name: d for d in sorted(root.iterdir()) if d.is_dir() and (d / "SKILL.md").is_file()}
-    idx = set(load_index(cfg).get("skills", {}))
-    assert set(dirs) == idx, \
-        f"skills.toml<->dirs mismatch: only-dirs={sorted(set(dirs) - idx)} only-toml={sorted(idx - set(dirs))}"
-    return dirs
+    if not root.exists():
+        return {}
+    return {d.name: d for d in sorted(root.iterdir())
+            if not d.name.startswith(".") and d.is_dir()
+            and (d / "SKILL.md").is_file()
+            and not any((d / manifest).exists() for manifest in
+                        (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"))}
 
 def parse_frontmatter(path):
     lines = path.read_text().split("\n")
@@ -88,7 +87,14 @@ SCAN_RULES = [
 
 def scan_skill(d):
     finds = []
-    for f in sorted(p for p in d.rglob("*") if p.is_file()):
+    files = []
+    for directory, dirs, names in os.walk(d, followlinks=False):
+        # Git history/index files are repository metadata, not skill resources.
+        # Prune before traversal; .git may also be a worktree pointer file.
+        dirs[:] = [name for name in dirs if name != ".git"]
+        files.extend(Path(directory) / name for name in names
+                     if name != ".git" and (Path(directory) / name).is_file())
+    for f in sorted(files):
         if f.stat().st_size > 1_000_000:
             finds.append((str(f.relative_to(d)), 0, "oversize-file", f"{f.stat().st_size} bytes"))
             continue
