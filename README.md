@@ -68,7 +68,7 @@ Replace `REPOSITORY_URL` with this repository's clone URL:
 ```bash
 mkdir -p "$HOME/brain"
 cd "$HOME/brain"
-git clone REPOSITORY_URL engine
+git clone https://github.com/lootr5858/ai-brain.git engine
 cp engine/brain.config.toml.example brain.config.toml
 cp -R engine/templates/agents agents
 cp -R engine/templates/user user
