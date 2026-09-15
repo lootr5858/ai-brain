@@ -63,7 +63,7 @@ class FakeRun:
 class BackupTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         self.brain = self.root / "brain"
         (self.brain / "user").mkdir(parents=True)
         (self.brain / "brain.config.toml").write_text("# config\n")

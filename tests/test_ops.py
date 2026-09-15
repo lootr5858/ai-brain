@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import os
+import errno
+import ctypes
+from unittest.mock import Mock, patch
 import subprocess
 import sys
 import tempfile
@@ -28,7 +31,7 @@ from lib.ops import (
 )
 
 
-root = Path(tempfile.mkdtemp())
+root = Path(tempfile.mkdtemp()).resolve()
 brain = root / "brain"
 engine = brain / "engine"
 agents = brain / "agents"
@@ -136,6 +139,44 @@ ancestor_link = user_write(alias_directory / "through-link.md", "no\n", user, ""
 assert not ancestor_link.allowed and "symlink" in ancestor_link.reason
 assert not (real_directory / "through-link.md").exists()
 
+# A destination created after validation must still never be overwritten.
+import lib.ops as ops
+
+race_source = user / "private" / "race.md"
+race_destination = user / "projects" / "race.md"
+race_source.write_text("source")
+race_destination.parent.mkdir(exist_ok=True)
+# Reject stale content, outside paths, symlinks, and existing destinations.
+for destination, digest in [("projects/stale.md", "wrong"), (agents / "outside.md", content_digest(race_source))]:
+    result = user_move("private/race.md", destination, user, digest)
+    assert not result.allowed, result
+race_destination.write_text("")
+result = user_move("private/race.md", "projects/race.md", user, content_digest(race_source))
+assert not result.allowed and "destination exists" in result.reason, result
+assert race_destination.read_text() == ""
+race_destination.unlink()
+(user / "private" / "link.md").symlink_to(race_source)
+result = user_move("private/link.md", "projects/link.md", user, content_digest(race_source))
+assert not result.allowed and "symlink" in result.reason, result
+assert race_source.read_text() == "source"
+
+original_digest_at = ops._digest_at
+checks = 0
+
+def raced_digest(directory_fd, name):
+    global checks
+    result = original_digest_at(directory_fd, name)
+    checks += 1
+    if checks == 4:
+        race_destination.write_text("destination")
+    return result
+
+with patch.object(ops, "_digest_at", side_effect=raced_digest):
+    result = user_move("private/race.md", "projects/race.md", user, content_digest(race_source))
+assert not result.allowed and "destination exists" in result.reason, result
+assert race_source.read_text() == "source"
+assert race_destination.read_text() == "destination"
+
 move_digest = content_digest(user / "private" / "x.md")
 moved = user_move("private/x.md", "projects/archive/x.md", user, move_digest)
 assert moved.allowed and not (user / "private" / "x.md").exists()
@@ -237,3 +278,29 @@ assert backup_calls[-1][-1] == "--confirm-replacement"
 print("task6 ok")
 
 print("ops tests: PASS")
+
+# Native dispatch is covered on every host; real moves above exercise this host.
+for platform, symbol, flag in [("linux", "renameat2", 1), ("darwin", "renameatx_np", 4)]:
+    native = Mock(return_value=0)
+    library = Mock(spec=[symbol])
+    setattr(library, symbol, native)
+    with patch.object(ops.sys, "platform", platform), patch.object(ops.ctypes, "CDLL", return_value=library):
+        ops._rename_noreplace(10, b"source", 11, b"destination")
+        native.assert_called_once_with(10, b"source", 11, b"destination", flag)
+        assert native.restype is ctypes.c_int
+        assert native.argtypes == [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+        native.return_value = -1
+        with patch.object(ops.ctypes, "get_errno", return_value=errno.EOPNOTSUPP):
+            try:
+                ops._rename_noreplace(10, b"source", 11, b"destination")
+            except OSError as exc:
+                assert exc.errno == errno.EOPNOTSUPP
+            else:
+                raise AssertionError("native failure accepted")
+
+with patch.object(ops.ctypes, "CDLL", return_value=object()):
+    result = user_move("private/race.md", "projects/unavailable.md", user, content_digest(race_source))
+assert not result.allowed and "unavailable" in result.reason
+assert race_source.read_text() == "source"
+assert not (user / "projects/unavailable.md").exists()
+print("move regression tests: PASS")

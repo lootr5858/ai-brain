@@ -17,7 +17,7 @@ from install import dashboard
 from lib.brain_mcp_install import InstallError
 
 
-root = Path(tempfile.mkdtemp())
+root = Path(tempfile.mkdtemp()).resolve()
 config_home = root / "config"
 with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config_home)}):
     assert dashboard.install_service(None) == 0

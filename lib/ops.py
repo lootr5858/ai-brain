@@ -13,6 +13,7 @@ import os
 import secrets
 import sqlite3
 import stat
+import sys
 import subprocess
 
 from lib.config import load_config
@@ -661,6 +662,24 @@ def user_write(
     return WriteResult(True, "written", str(target))
 
 
+def _rename_noreplace(source_fd: int, source: bytes, destination_fd: int, destination: bytes) -> None:
+    """Move relative to open directories without replacing an existing entry."""
+    if sys.platform == "linux":
+        symbol, flag = "renameat2", 1  # RENAME_NOREPLACE
+    elif sys.platform == "darwin":
+        symbol, flag = "renameatx_np", 4  # RENAME_EXCL
+    else:
+        raise _UnsafeWritePath("atomic no-replace move unavailable")
+    native = getattr(ctypes.CDLL(None, use_errno=True), symbol, None)
+    if native is None:
+        raise _UnsafeWritePath("atomic no-replace move unavailable")
+    native.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    native.restype = ctypes.c_int
+    if native(source_fd, source, destination_fd, destination, flag):
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+
+
 def user_move(
     source: str | Path,
     destination: str | Path,
@@ -688,23 +707,17 @@ def user_move(
             or _digest_at(destination_fd, destination_relative.name)
         ):
             return WriteResult(False, "stale content digest", str(source))
-        renameat2 = getattr(ctypes.CDLL(None, use_errno=True), "renameat2", None)
-        if renameat2 is None:
-            return WriteResult(False, "atomic no-replace move unavailable", str(source))
-        if renameat2(
+        _rename_noreplace(
             source_fd,
             os.fsencode(source_relative.name),
             destination_fd,
             os.fsencode(destination_relative.name),
-            1,
-        ):
-            error = ctypes.get_errno()
-            reason = "destination exists" if error == errno.EEXIST else os.strerror(error)
-            return WriteResult(False, f"move failed: {reason}", str(source))
+        )
     except _UnsafeWritePath as exc:
         return WriteResult(False, str(exc), str(source))
     except OSError as exc:
-        return WriteResult(False, f"move failed: {exc.strerror or type(exc).__name__}", str(source))
+        reason = "destination exists" if exc.errno == errno.EEXIST else exc.strerror or type(exc).__name__
+        return WriteResult(False, f"move failed: {reason}", str(source))
     finally:
         if source_fd is not None:
             os.close(source_fd)

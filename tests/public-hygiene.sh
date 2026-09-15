@@ -5,12 +5,13 @@ access_key='access_'"token"
 refresh_key='refresh_'"token"
 id_key='id_'"token"
 token_key='tok'"en"
+upper_token_key=$(printf '%s' "$token_key" | tr '[:lower:]' '[:upper:]')
 quote="[\"']"
 secret_value='[A-Za-z0-9._~-]{16,}'
 secret_key="(${client_key}|${access_key}|${refresh_key}|${id_key}|${token_key})"
 bad_named_secret="(^|[^A-Za-z0-9_])${quote}?${secret_key}${quote}?[[:space:]]*[:=][[:space:]]*${quote}${secret_value}${quote}"
 bad_bearer="Authorization[[:space:]]*:[[:space:]]*Bearer[[:space:]]+${secret_value}"
-bad_role_secret="BRAIN_[A-Z0-9_]*${token_key^^}[[:space:]]*=[[:space:]]*${secret_value}"
+bad_role_secret="BRAIN_[A-Z0-9_]*${upper_token_key}[[:space:]]*=[[:space:]]*${secret_value}"
 bad_query_secret="[?&]${token_key}=${secret_value}"
 PUBLIC_HYGIENE_CREDENTIAL_LEAK="$bad_named_secret|$bad_bearer|$bad_role_secret|$bad_query_secret"
 
@@ -24,7 +25,7 @@ public_hygiene_check_controls() {
     "${id_key}=\"abcdefghijklmnop\"" \
     "${token_key}='abcdefghijklmnop'" \
     "Authoriza""tion: Bearer abcdefghijklmnop" \
-    "BRAIN_TEST_${token_key^^}=abcdefghijklmnop" \
+    "BRAIN_TEST_${upper_token_key}=abcdefghijklmnop" \
     "?${token_key}=abcdefghijklmnop"
   do
     if ! printf '%s\n' "$fixture" |
