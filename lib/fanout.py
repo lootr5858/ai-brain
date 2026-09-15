@@ -5,7 +5,8 @@ import re
 from pathlib import Path
 
 ENGINE = Path(__file__).resolve().parents[1]
-SPEC_KEYS = {"name", "description", "license", "compatibility", "metadata", "allowed-tools"}
+SPEC_KEYS = {"name", "description", "license", "compatibility", "metadata", "allowed-tools",
+             "disable-model-invocation", "argument-hint"}
 SUPPORT_DIRS = {"references", "templates", "assets", "scripts"}
 
 def skills_root(cfg):

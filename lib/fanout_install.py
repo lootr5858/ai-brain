@@ -182,7 +182,8 @@ def make_plan(cfg, *, targets=None, kind="all", uninstall=False, root=None, sett
                     plan.reports.append(f"SKIP {target} plugins: no runtime configured")
                     continue
                 runtime = options["runtime"]
-                plugins, reports = discover_plugins(Path(cfg["paths"]["agents"]), runtime)
+                plugins, reports = discover_plugins(Path(cfg["paths"]["agents"]), runtime,
+                                                     exclude=options.get("exclude", []))
                 plan.reports.extend(reports)
                 for plugin in plugins.values():
                     entry = dict(name=plugin.name, source=str(plugin.root), target=target,

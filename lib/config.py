@@ -52,6 +52,11 @@ def load_config(path: str | Path | None = None) -> dict:
             raise ValueError(f"plugin runtime has no matching skill target: {target}")
         if not isinstance(options, dict) or options.get("runtime") not in ("claude-code", "codex"):
             raise ValueError(f"{target}: plugin runtime must be claude-code or codex")
+        excluded = options.get("exclude", [])
+        if not isinstance(excluded, list) or any(
+                not isinstance(name, str) or not name or name in (".", "..")
+                or "/" in name or "\\" in name for name in excluded):
+            raise ValueError(f"{target}: plugin exclude must be a list of source folder names")
         if options["runtime"] == "codex":
             from lib.plugins import identifier
             name = identifier(options.get("marketplace_name"), "marketplace")

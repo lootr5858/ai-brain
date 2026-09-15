@@ -10,10 +10,11 @@ state = ".brain-install/state.json"
 
 [engine.fanout.targets]
 claude-code = "~/.claude/skills"
-codex-dir = "~/.agents/skills"
+codex-dir = "~/.codex/skills"
 
 [engine.fanout.plugins.claude-code]
 runtime = "claude-code"
+exclude = ["mattpocock"]
 
 [engine.fanout.plugins.codex-dir]
 runtime = "codex"

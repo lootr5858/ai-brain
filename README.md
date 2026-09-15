@@ -133,10 +133,11 @@ state = ".brain-install/state.json"
 
 [engine.fanout.targets]
 claude-code = "~/.claude/skills"
-codex-dir = "~/.agents/skills"
+codex-dir = "~/.codex/skills"
 
 [engine.fanout.plugins.claude-code]
 runtime = "claude-code"
+exclude = ["mattpocock"]
 
 [engine.fanout.plugins.codex-dir]
 runtime = "codex"
@@ -159,6 +160,7 @@ port = 8765
 | `engine.fanout.state` | Installer ownership and recovery record; default: `<brain>/.brain-install/state.json` |
 | `engine.fanout.targets.*` | Named standalone skill destinations; Claude plugins use the corresponding destination |
 | `engine.fanout.plugins.<target>.runtime` | `claude-code` or `codex`; target must also exist in `targets` |
+| `engine.fanout.plugins.<target>.exclude` | Optional list of source folder names under `agents/plugins` to skip for this target; default: `[]` |
 | `engine.fanout.plugins.<target>.marketplace_name` | Unique name for an installer-owned Codex marketplace |
 | `engine.fanout.plugins.<target>.marketplace` | Dedicated local Codex marketplace directory |
 | `engine.fanout.plugins.<target>.executable` | Codex executable name or path; default: `codex` |
@@ -208,15 +210,17 @@ agents/
         └── hooks/hooks.json
 ```
 
-Only immediate skill directories with `SKILL.md` are standalone skills. Plugin roots belong under `plugins/`; their manifest names identify them even when the directory names differ. Each application uses its own manifest. A missing manifest for a selected application produces `SKIP`; malformed manifests, duplicate plugin names, missing resources, and unmanaged destination collisions produce refusals. Missing or empty source directories are allowed. Plugin-contained skills are not installed a second time as standalone skills.
+Only immediate skill directories with `SKILL.md` are standalone skills, including symlinks to complete skill directories. Plugin roots belong under `plugins/`; their manifest names identify them even when the directory names differ. Each application uses its own manifest. A missing manifest for a selected application produces `SKIP`; malformed manifests, duplicate plugin names, missing resources, and unmanaged destination collisions produce refusals. Missing or empty source directories are allowed. Plugin-contained skills are not automatically discovered as standalone skills, but explicit links under `agents/skills` are.
 
-Standalone skill validation and the existing content scanner remain in place. The scanner skips `.git` directories and worktree pointer files; all other skill files retain the existing content and binary-file checks. Plugins use structural validation of manifests, skill metadata, hook declarations, explicit bundled command-resource paths, and internal symlinks; legitimate binary assets are allowed. This does not execute or audit the behavior of plugin scripts. Repository metadata such as `.git` is excluded from plugin snapshots and content fingerprints. External or broken plugin symlinks are refused so snapshots remain self-contained.
+Use a target's plugin `exclude` list to skip source folders before their manifests are read. Entries are folder names, not manifest names or paths. For example, `exclude = ["mattpocock"]` skips `agents/plugins/mattpocock` as a Claude plugin while its individual links under `agents/skills` remain installable. Other plugins and targets are unaffected. Exclusion prevents future installation; it does not remove an existing installation. `--uninstall` still uses the ownership record to remove Brain-managed plugins even after they are excluded.
+
+Standalone skill validation accepts `disable-model-invocation` and `argument-hint` alongside the existing metadata fields. Installation preserves skill metadata and supporting files. The existing content scanner remains in place. The scanner skips `.git` directories and worktree pointer files; all other skill files retain the existing content and binary-file checks. Plugins use structural validation of manifests, skill metadata, hook declarations, explicit bundled command-resource paths, and internal symlinks; legitimate binary assets are allowed. This does not execute or audit the behavior of plugin scripts. Repository metadata such as `.git` is excluded from plugin snapshots and content fingerprints. External or broken plugin symlinks are refused so snapshots remain self-contained.
 
 #### Application behavior
 
 | Content | Claude Code | Codex |
 | --- | --- | --- |
-| Standalone skills | Link/copy to the configured destination, normally `~/.claude/skills` | Link/copy to the documented user location, `~/.agents/skills` |
+| Standalone skills | Link/copy to the configured destination, normally `~/.claude/skills` | Link/copy to the configured destination, `~/.codex/skills` in the supplied config |
 | Complete plugins | Link/copy the whole plugin into the Claude skill destination; requires skills-directory plugin support | Copy a managed snapshot into the dedicated Brain marketplace, register it, then install through the native CLI |
 | Source edits | Linked content remains live; reload plugin components when needed. Rerun for copied content | Rerun the installer: changed content triggers native removal and reinstallation to refresh the cache |
 

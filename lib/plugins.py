@@ -163,7 +163,7 @@ def read_plugin(root, runtime):
     return Plugin(name, root.resolve(), runtime, tuple(names), hooks, fingerprint(root))
 
 
-def discover_plugins(agents, runtime):
+def discover_plugins(agents, runtime, *, exclude=()):
     root = agents / "plugins"
     found, reports = {}, []
     if not root.exists():
@@ -171,6 +171,9 @@ def discover_plugins(agents, runtime):
     duplicates = set()
     for directory in sorted(root.iterdir()):
         if directory.name.startswith(".") or not directory.is_dir():
+            continue
+        if directory.name in exclude:
+            reports.append(f"SKIP {runtime} {directory.name}: excluded by configuration")
             continue
         if not (directory / MANIFESTS[runtime]).exists():
             reports.append(f"SKIP {runtime} {directory.name}: no {MANIFESTS[runtime]}")

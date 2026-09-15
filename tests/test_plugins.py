@@ -195,6 +195,42 @@ class InstallerTests(unittest.TestCase):
         put(self.agents / "plugins/bad/.codex-plugin/plugin.json", "[]")
         self.assertTrue(self.plan(kind="plugins").blocked)
 
+    def test_excluded_folder_is_skipped_before_manifest_validation(self):
+        put(self.agents / "plugins/bad/.codex-plugin/plugin.json", "[]")
+        plugin(self.agents / "plugins/keep")
+        self.cfg["engine"]["fanout"]["plugins"]["codex-dir"]["exclude"] = ["bad"]
+        plan = self.plan(kind="plugins", targets=["codex-dir"])
+        self.assertFalse(plan.blocked, plan.reports)
+        self.assertEqual([entry["name"] for entry in plan.actions], ["package"])
+        self.assertIn("SKIP codex bad: excluded by configuration", plan.reports)
+
+    def test_exclusion_uses_source_folder_and_only_selected_target(self):
+        source = plugin(self.agents / "plugins/source-folder", name="manifest-name")
+        skills = self.agents / "skills"
+        skills.mkdir()
+        (skills / "demo").symlink_to(source / "skills/category/demo", target_is_directory=True)
+        self.cfg["engine"]["fanout"]["plugins"]["claude-code"]["exclude"] = ["source-folder"]
+        plan = self.plan()
+        self.assertFalse(plan.blocked, plan.reports)
+        self.assertEqual({(entry["target"], entry["kind"], entry["name"]) for entry in plan.actions},
+                         {("claude-code", "skills", "demo"), ("codex-dir", "skills", "demo"),
+                          ("codex-dir", "plugins", "manifest-name")})
+        self.assertIn("SKIP claude-code source-folder: excluded by configuration", plan.reports)
+
+    def test_excluded_plugin_can_still_be_uninstalled_from_record(self):
+        source = plugin(self.agents / "plugins/source-folder")
+        self.apply(kind="plugins")
+        for options in self.cfg["engine"]["fanout"]["plugins"].values():
+            options["exclude"] = ["source-folder"]
+        self.assertEqual(self.plan(kind="plugins").actions, [])
+        self.assertTrue((self.root / "home/.claude/skills/package").is_symlink())
+        self.assertEqual(len(self.native.installed), 1)
+        self.apply(kind="plugins", uninstall=True)
+        self.assertFalse((self.root / "home/.claude/skills/package").is_symlink())
+        self.assertEqual(self.native.installed, [])
+        self.assertEqual(State(self.root / "state.json").entries, {})
+        self.assertTrue(source.is_dir())
+
     def test_missing_hook_resource_blocks_install(self):
         path = plugin(self.agents / "plugins/package")
         (path / "scripts/start.py").unlink()
@@ -448,6 +484,23 @@ executable = "./bin/codex"
         config.write_text(config.read_text().replace('runtime = "codex"', 'runtime = "unknown"'))
         with self.assertRaisesRegex(ValueError, "runtime"):
             load_config(config)
+
+    def test_plugin_exclusion_config_requires_folder_names(self):
+        config = self.root / "config.toml"
+        base = '''[engine.fanout.targets]
+custom = "~/skills"
+[engine.fanout.plugins.custom]
+runtime = "claude-code"
+'''
+        put(config, base + 'exclude = ["source-folder"]\n')
+        self.assertEqual(load_config(config)["engine"]["fanout"]["plugins"]["custom"]["exclude"],
+                         ["source-folder"])
+        for value in ('"source-folder"', '[1]', '[""]', '["."]', '[".."]',
+                      '["../outside"]', '["/absolute"]', "['nested\\folder']"):
+            with self.subTest(value=value):
+                put(config, base + f"exclude = {value}\n")
+                with self.assertRaisesRegex(ValueError, "source folder names"):
+                    load_config(config)
 
     def test_cli_is_explicitly_gated_without_importing_or_running_it(self):
         tree = ast.parse((ENGINE / "install/skills.py").read_text())

@@ -14,7 +14,8 @@ agents = tmp / "agents"
 skill = agents / "skills" / "demo"
 skill.mkdir(parents=True)
 (skill / "SKILL.md").write_text(
-    "---\nname: demo\ndescription: Synthetic test skill.\n---\n# Demo\n"
+    "---\nname: demo\ndescription: Synthetic test skill.\n"
+    "disable-model-invocation: true\nargument-hint: [topic]\n---\n# Demo\n"
 )
 config = tmp / "brain.config.toml"
 config.write_text(
@@ -40,7 +41,9 @@ assert not (agents / "skills" / "skills.toml").exists()
 
 fm, body = parse_frontmatter(sk["demo"] / "SKILL.md")
 assert fm["name"] == "demo" and fm["description"] and body
-assert set(fm) <= {"name", "description", "license", "compatibility", "metadata", "allowed-tools"}
+assert set(fm) <= {"name", "description", "license", "compatibility", "metadata", "allowed-tools",
+                   "disable-model-invocation", "argument-hint"}
+assert fm["disable-model-invocation"] == "true" and fm["argument-hint"] == "[topic]"
 
 for name, d in sk.items():
     assert validate_skill(d) == [], f"{name}: {validate_skill(d)}"
