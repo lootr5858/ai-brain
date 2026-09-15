@@ -116,6 +116,6 @@ for txt in (agents_tpl, claude_tpl):
     assert "BOOTSTRAP.md" in txt
     assert "/home/" not in txt
     assert (".private-" + "data") not in txt
-assert "@import" in claude_tpl
+assert claude_tpl == "@$AGENTS_ROOT/BOOTSTRAP.md\n@$USER_ROOT/BOOTSTRAP.md\n"
 assert "@import" not in agents_tpl
 print("task5 ok")

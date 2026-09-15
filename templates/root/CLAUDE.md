@@ -1,3 +1,2 @@
-# Root brain adapter for Claude Code
-
-@import ./BOOTSTRAP.md
+@$AGENTS_ROOT/BOOTSTRAP.md
+@$USER_ROOT/BOOTSTRAP.md

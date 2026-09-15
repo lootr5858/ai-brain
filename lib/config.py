@@ -11,7 +11,7 @@ CONFIG_ENV = "BRAIN_CONFIG"
 
 def config_path(path: str | Path | None = None) -> Path:
     selected = path if path is not None else os.environ.get(CONFIG_ENV)
-    return Path(selected).expanduser().resolve() if selected else ENGINE.parent / "brain.config.toml"
+    return Path(os.path.expandvars(str(selected))).expanduser().resolve() if selected else ENGINE.parent / "brain.config.toml"
 
 
 def load_config(path: str | Path | None = None) -> dict:
@@ -28,7 +28,7 @@ def load_config(path: str | Path | None = None) -> dict:
     paths = dict(data.get("paths", {}))
 
     def resolved(value: str | Path) -> Path:
-        candidate = Path(value).expanduser()
+        candidate = Path(os.path.expandvars(str(value))).expanduser()
         return (candidate if candidate.is_absolute() else selected.parent / candidate).resolve()
 
     brain = resolved(paths.get("brain", selected.parent))

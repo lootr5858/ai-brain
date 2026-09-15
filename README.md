@@ -78,7 +78,13 @@ uv sync --locked
 .venv/bin/python install/brain_mcp.py --config ../brain.config.toml verify-stdio
 ```
 
-Success ends with four `VERIFY ...: PASS` lines. The adapter command creates `BOOTSTRAP.md`, `AGENTS.md`, and `CLAUDE.md` in the parent brain directory.
+Success ends with four `VERIFY ...: PASS` lines. The adapter command creates `BOOTSTRAP.md` in the brain directory and installs the entry instructions in `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`, so the brain is available from any project.
+
+Adapters read the configured `paths.agents/BOOTSTRAP.md` directly and include only `paths.user/BOOTSTRAP.md` when that file exists. `--agents-root` overrides the agent store; `--user-root` selects one user store and requires its bootstrap; `--no-user` omits user guidance. No user directories are scanned. `--brain` defaults these stores to its `agents/` and `user/` children unless overridden. Paths expand `$HOME`, `${HOME}`, and `~`. Claude receives native `@` imports; Codex receives a `Read and follow` instruction. Existing brain-root bootstraps are preserved; new ones use the two-store template. See [Claude memory](https://code.claude.com/docs/en/memory) and [Codex instructions](https://developers.openai.com/codex/guides/agents-md/).
+
+The installer preserves existing global instructions and adds or updates its own block between `brain-engine:bootstrap` comment markers. It defaults to dry-run; use `--apply` to write. Client destinations honor `CODEX_HOME` and `CLAUDE_CONFIG_DIR`; `--codex-home` and `--claude-home` override them. A nonempty Codex `AGENTS.override.md` takes precedence over `AGENTS.md`, so the installer reports it for you to reconcile.
+
+This setup loads brain guidance for every project. Keep the always-loaded core small and ensure the agent can read the brain directory. Use a brain path without whitespace: [Claude has reported import failures for paths containing spaces](https://github.com/anthropics/claude-code/issues/56927), and the installer rejects those paths. Existing brain-root `AGENTS.md` and `CLAUDE.md` from older installs are left untouched; remove redundant entries after reviewing any personal edits. Restart the agent after installing.
 
 ## 4. Directory model
 
@@ -88,11 +94,12 @@ The setup above creates:
 brain/
 ├── brain.config.toml       local paths and optional settings
 ├── BOOTSTRAP.md            generated shared-memory router
-├── AGENTS.md               generated Codex-style adapter
-├── CLAUDE.md               generated Claude Code adapter
 ├── engine/                 public mechanism repository
 ├── agents/                 agent instructions and optional skills
 └── user/                   preferences and user context
+
+~/.codex/AGENTS.md          global Codex entry instruction
+~/.claude/CLAUDE.md         global Claude Code import
 ```
 
 | Engine path | Purpose |
@@ -144,7 +151,7 @@ port = 8765
 
 | Key | Meaning |
 | --- | --- |
-| `paths.brain` | Brain container and generated root-adapter location |
+| `paths.brain` | Brain container and generated `BOOTSTRAP.md` location |
 | `paths.engine` | Engine checkout |
 | `paths.agents` | Agent store |
 | `paths.user` | User store |
@@ -161,7 +168,7 @@ port = 8765
 | `engine.ops.dashboard.embedding_url` | Optional loopback embedding endpoint |
 | `engine.ops.dashboard.embedding_model` | Model sent to that endpoint |
 
-Re-run the adapter installer after changing `paths.brain` or moving the setup.
+Configured paths expand environment variables and `~`; relative paths resolve from the configuration file's directory. Re-run the adapter installer after changing `paths.brain` or moving the setup.
 
 ## 6. Create your agent store
 

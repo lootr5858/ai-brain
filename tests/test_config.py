@@ -17,7 +17,7 @@ from lib.brain_mcp_install import discover_context, expected_stdio_command, vali
 from lib.ops import load_ops_config
 
 
-example_root = Path(tempfile.mkdtemp(prefix="brain-config-example-"))
+example_root = Path(tempfile.mkdtemp(prefix="brain-config-example-")).resolve()
 example = example_root / "brain.config.toml"
 example.write_text((Path(__file__).resolve().parents[1] / "brain.config.toml.example").read_text())
 example_paths = config.load_config(example)["paths"]
@@ -27,7 +27,7 @@ assert Path(example_paths["agents"]) == example_root / "agents"
 assert Path(example_paths["user"]) == example_root / "user"
 
 
-root = Path(tempfile.mkdtemp(prefix="brain-config-"))
+root = Path(tempfile.mkdtemp(prefix="brain-config-")).resolve()
 config_dir = root / "config dir"
 config_dir.mkdir()
 home = root / "home"
@@ -53,6 +53,11 @@ second = config_dir / "second.toml"
 second.write_text('[paths]\nbrain = "../second brain"\n')
 
 with mock.patch.dict(os.environ, {"HOME": str(home)}, clear=True):
+    env_config = home / "env.toml"
+    env_config.write_text('[paths]\nbrain = "$HOME/brain"\nuser = "${HOME}/user"\n')
+    env_paths = config.load_config("$HOME/env.toml")["paths"]
+    assert Path(env_paths["brain"]) == home / "brain"
+    assert Path(env_paths["user"]) == home / "user"
     loaded = config.load_config(first)
     assert Path(loaded["paths"]["brain"]) == root / "brain root"
     assert Path(loaded["paths"]["engine"]) == root / "engine checkout"
