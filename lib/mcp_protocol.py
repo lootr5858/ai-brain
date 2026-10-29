@@ -20,10 +20,8 @@ def _string(description: str, *, minimum: int | None = None) -> dict:
 
 TOOL_INPUTS = {
     "get_core": ({}, []),
-    "get_discipline": ({"name": _string("Discipline name.", minimum=1)}, ["name"]),
-    "get_reference": ({"path": _string("Reference path.", minimum=1)}, ["path"]),
     "get_skill": ({"name": _string("Skill name.", minimum=1)}, ["name"]),
-    "get_user_context": ({"field": _string("User context field.", minimum=1)}, ["field"]),
+    "get_user_context": ({"field": _string("User store record path; `.md` may be omitted.", minimum=1)}, ["field"]),
     "health_check": ({}, []),
     "list_context": ({}, []),
     "list_nonprivate": ({"path": _string("Brain path; defaults to root.")}, []),

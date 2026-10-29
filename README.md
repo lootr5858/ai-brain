@@ -2,11 +2,11 @@
 
 AI Brain Engine is the public mechanism for a local AI brain. It connects two user-owned stores to AI agents:
 
-- `agents/` contains reusable agent behavior, rules, skills, and references.
-- `user/` contains the user's preferences and selectively loaded context.
+- `agents/` contains reusable agent behavior, skills, and plugins.
+- `user/` contains the user's personal records.
 - `engine/` supplies configuration, bootstrap adapters, Model Context Protocol (MCP) access, a dashboard, skill fan-out, and optional backup.
 
-An agent starts at the generated brain-root bootstrap. It loads the small required core from both stores, then follows explicit routes to additional context only when needed.
+Each store's `README.md` is its only contract with the engine. The agents README frontmatter lists, as globs, what every session and subagent loads; the engine's `brain-context` hook injects that set, so moving or adding store files never changes runtime wiring.
 
 The engine reproduces this mechanism. It does not reproduce anyone else's instructions, identity, history, credentials, or data.
 
@@ -34,10 +34,10 @@ The engine keeps mechanism separate from content:
 ```text
 agent request
     ↓
-brain-root bootstrap
-    ├── always: agent bootstrap + agent core
-    ├── always: user bootstrap + preferences + context routing
-    └── when routed: other rules, skills, references, and user context
+brain-context hook (session or subagent start)
+    ├── always: agents README + its manifest globs
+    ├── always (session): user README
+    └── on purpose: files those READMEs route to
 ```
 
 Local MCP uses a read-only Standard Input/Output (STDIO) subprocess. Optional remote MCP exposes the same tools through OAuth-protected Streamable HTTP. The dashboard provides a local interface for browsing, search, permitted user-file editing, service status, remote-client management, and backup controls.
@@ -50,8 +50,8 @@ Python code and command `--help` output are authoritative for engine behavior. T
 | --- | --- | --- |
 | Engine source and generic templates | `engine/` | Yes |
 | Local path configuration | `brain.config.toml` | No |
-| Agent rules, skills, and references | `agents/` | Separate decision |
-| Preferences and personal context | `user/` | No by default |
+| Agent behavior, skills, and plugins | `agents/` | Separate decision |
+| Personal records | `user/` | No by default |
 | OAuth state, caches, and service state | Standard user state directories | No |
 | Passwords, access tokens, and client secrets | External credential storage | Never |
 
@@ -78,13 +78,13 @@ uv sync --locked
 .venv/bin/python install/brain_mcp.py --config ../brain.config.toml verify-stdio
 ```
 
-Success ends with four `VERIFY ...: PASS` lines. The adapter command creates `BOOTSTRAP.md` in the brain directory and installs the entry instructions in `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`, so the brain is available from any project.
+Success ends with four `VERIFY ...: PASS` lines. The adapter command creates `BOOTSTRAP.md` in the brain directory and installs the entry instructions in `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md` plus `brain-context` hooks in `~/.codex/hooks.json` and `~/.claude/settings.json`, so the brain is available from any project.
 
-Adapters read the configured `paths.agents/README.md` directly and include only `paths.user/README.md` when that file exists. `--agents-root` overrides the agent store; `--user-root` selects one user store and requires its `README.md`; `--no-user` omits user guidance. No user directories are scanned. `--brain` defaults these stores to its `agents/` and `user/` children unless overridden. Paths expand `$HOME`, `${HOME}`, and `~`. Claude receives native `@` imports; Codex receives a `Read and follow` instruction. Existing brain-root bootstraps are preserved; new ones use the two-store template. See [Claude memory](https://code.claude.com/docs/en/memory) and [Codex instructions](https://developers.openai.com/codex/guides/agents-md/).
+Adapters read the configured `paths.agents/README.md` directly and include only `paths.user/README.md` when that file exists. `--agents-root` overrides the agent store; `--user-root` selects one user store and requires its `README.md`; `--no-user` omits user guidance. No user directories are scanned. `--brain` defaults these stores to its `agents/` and `user/` children unless overridden. Paths expand `$HOME`, `${HOME}`, and `~`. Both runtimes get the same entry block naming the two READMEs; the hooks do the loading. Hook commands are fixed — `bin/brain-context session --chunk N` and `bin/brain-context subagent --chunk N --json SubagentStart` — and each chunk stays under Claude Code's hook-output cap, which replaces about 10k characters or more with a short preview. Codex asks you to trust the hooks once; later store changes keep the same commands. Existing brain-root bootstraps are preserved; new ones use the two-store template. See [Claude memory](https://code.claude.com/docs/en/memory) and [Codex instructions](https://developers.openai.com/codex/guides/agents-md/).
 
-The installer preserves existing global instructions and adds or updates its own block between `brain-engine:bootstrap` comment markers. It defaults to dry-run; use `--apply` to write. Client destinations honor `CODEX_HOME` and `CLAUDE_CONFIG_DIR`; `--codex-home` and `--claude-home` override them. A nonempty Codex `AGENTS.override.md` takes precedence over `AGENTS.md`, so the installer reports it for you to reconcile.
+The installer preserves existing global instructions and adds or updates its own block between `brain-engine:bootstrap` comment markers. In hook files it replaces only groups whose command runs `bin/brain-context` and keeps everything else. It defaults to dry-run; use `--apply` to write. Client destinations honor `CODEX_HOME` and `CLAUDE_CONFIG_DIR`; `--codex-home` and `--claude-home` override them. A nonempty Codex `AGENTS.override.md` takes precedence over `AGENTS.md`, so the installer reports it for you to reconcile.
 
-This setup loads brain guidance for every project. Keep the always-loaded core small and ensure the agent can read the brain directory. Use a brain path without whitespace: [Claude has reported import failures for paths containing spaces](https://github.com/anthropics/claude-code/issues/56927), and the installer rejects those paths. Existing brain-root `AGENTS.md` and `CLAUDE.md` from older installs are left untouched; remove redundant entries after reviewing any personal edits. Restart the agent after installing.
+This setup loads brain guidance for every project. Keep the always-loaded core small and ensure the agent can read the brain directory. Existing brain-root `AGENTS.md` and `CLAUDE.md` from older installs are left untouched; remove redundant entries after reviewing any personal edits. Restart the agent after installing.
 
 ## 4. Directory model
 
@@ -95,15 +95,18 @@ brain/
 ├── brain.config.toml       local paths and optional settings
 ├── BOOTSTRAP.md            generated shared-memory router
 ├── engine/                 public mechanism repository
-├── agents/                 agent instructions and optional skills
-└── user/                   preferences and user context
+├── agents/                 agent instructions, skills, and plugins
+└── user/                   personal records
 
-~/.codex/AGENTS.md          global Codex entry instruction
-~/.claude/CLAUDE.md         global Claude Code import
+~/.codex/AGENTS.md          global entry block (Codex)
+~/.claude/CLAUDE.md         global entry block (Claude Code)
+~/.codex/hooks.json         brain-context hooks (Codex)
+~/.claude/settings.json     brain-context hooks (Claude Code)
 ```
 
 | Engine path | Purpose |
 | --- | --- |
+| `bin/brain-context` | Prints the always-loaded set from the store manifests, whole or per hook chunk |
 | `templates/` | Generic root, agent, and user starting files |
 | `install/` | Adapters, skill/plugin installation, MCP, and dashboard commands |
 | `lib/` | Shared engine behavior |
@@ -183,14 +186,20 @@ agents/
     └── behavior-rules.md
 ```
 
-`README.md` is the store's entry point: it imports each `core/` file with one `@core/<file>.md` line and routes additional content. Claude expands those imports natively; Codex reads them as paths to load. Keep `core/` small.
+`README.md` is the entry point and the manifest. Its frontmatter lists glob patterns per context set:
 
-Add task-specific material only when needed:
+```yaml
+---
+session:
+  - core/*.md
+subagent:
+  - skills/<name>/SKILL.md
+---
+```
 
-- `rules/` for domain rules routed by the agent bootstrap.
-- `skills/<name>/SKILL.md` for reusable task procedures.
-- `plugins/<directory>/` for complete plugins, including their manifests, bundled skills, and hooks.
-- `reference/` for explicitly requested lookup material.
+A new file under a listed pattern loads with no other change; renaming or moving a file means editing one manifest line. The body routes everything else. Keep the session set small: `bin/brain-context session` prints exactly what agents receive, and a note appears in the output when a pattern matches nothing or the set exceeds its chunks.
+
+Add other material in any layout the README routes, for example `skills/<name>/SKILL.md` for reusable procedures and `plugins/<directory>/` for complete plugins with manifests, bundled skills, and hooks.
 
 ### Skill and plugin installation — optional
 
@@ -325,7 +334,7 @@ Print the exact connection and verify it:
 
 Copy the returned `command`, `args`, and empty `env` into the local client's STDIO MCP configuration as separate fields. Regenerate them after moving the engine or configuration file.
 
-The server exposes health and status, minimum core loading, routed discipline/skill/user/reference reads, search, and classified file listing/reading. Run `stdio-command` again instead of manually constructing paths.
+The server exposes health and status, the always-loaded set (`get_core`, from the same manifest as the hooks), skill and user-record reads, search, and classified file listing/reading. Run `stdio-command` again instead of manually constructing paths.
 
 ## 9. Brain Dashboard (optional)
 

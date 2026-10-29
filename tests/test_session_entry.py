@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -34,12 +35,15 @@ bootstrap = se.root_bootstrap()
 assert bootstrap == "Read `agents/README.md` and `user/README.md` relative to this file and follow them.\n"
 print("task1 ok")
 
-agents_txt = se.agents_adapter(agents, user)
-claude_txt = se.claude_adapter(agents, user)
-assert "README.md" in agents_txt and "@import" not in agents_txt
-assert claude_txt == f"@{agents}/README.md\n@{user}/README.md\n"
-assert agents_txt == f"Read and follow `{agents}/README.md` and `{user}/README.md`.\n"
-for text in (bootstrap, agents_txt, claude_txt):
+entry_txt = se.entry_adapter(agents, user)
+assert entry_txt.startswith(f"Brain context: `{agents}/README.md` and `{user}/README.md`, plus")
+assert "@" not in entry_txt
+assert se.entry_adapter(agents).startswith(f"Brain context: `{agents}/README.md`, plus")
+groups = se.hook_groups(ENGINE)
+assert [len(groups[event]) for event in ("SessionStart", "SubagentStart")] == [4, 4]
+assert groups["SessionStart"][0]["hooks"][0]["command"] == f"{ENGINE}/bin/brain-context session --chunk 1"
+assert groups["SubagentStart"][3]["hooks"][0]["command"].endswith("subagent --chunk 4 --json SubagentStart")
+for text in (bootstrap, entry_txt):
     assert "CHANGE_ME" not in text
     assert (".private-" + "data") not in text
 print("task2 ok")
@@ -65,6 +69,7 @@ assert not (brain / "BOOTSTRAP.md").exists()
 assert not home.exists()
 assert str(codex / "AGENTS.md") in r.stdout
 assert str(claude / "CLAUDE.md") in r.stdout
+assert str(claude / "settings.json") in r.stdout and str(codex / "hooks.json") in r.stdout
 print("task3 ok")
 
 r = subprocess.run(
@@ -75,8 +80,11 @@ r = subprocess.run(
 )
 assert r.returncode == 0, r.stderr + r.stdout
 assert (brain / "BOOTSTRAP.md").read_text() == bootstrap
-assert agents_txt in (codex / "AGENTS.md").read_text()
-assert claude_txt in (claude / "CLAUDE.md").read_text()
+assert entry_txt in (codex / "AGENTS.md").read_text()
+assert entry_txt in (claude / "CLAUDE.md").read_text()
+for path in (codex / "hooks.json", claude / "settings.json"):
+    assert json.loads(path.read_text())["hooks"] == groups
+assert "trust" in r.stdout
 assert not (brain / "AGENTS.md").exists()
 assert not (brain / "CLAUDE.md").exists()
 print("task4 ok")
@@ -113,7 +121,7 @@ custom_codex.mkdir()
 r = run("--codex-home", "$HOME/custom-codex", "--claude-home", "~/custom-claude", "--apply")
 assert r.returncode == 0, r.stderr
 assert (custom_codex / "AGENTS.md").read_text().startswith("Existing preferences without newline\n\n")
-assert claude_txt in (custom_claude / "CLAUDE.md").read_text()
+assert entry_txt in (custom_claude / "CLAUDE.md").read_text()
 
 # Client environment overrides are honored; flags take precedence.
 custom_env = {**env, "CODEX_HOME": "$HOME/env-codex", "CLAUDE_CONFIG_DIR": "${HOME}/env-claude"}
@@ -130,7 +138,7 @@ local_bootstrap = "Read `agents/README.md` relative to this file and follow it.\
 r = run("--no-user", "--apply")
 assert r.returncode == 0, r.stderr
 assert (brain / "BOOTSTRAP.md").read_text() == local_bootstrap
-assert se.agents_adapter(agents) in (codex / "AGENTS.md").read_text()
+assert se.entry_adapter(agents) in (codex / "AGENTS.md").read_text()
 assert str(user) not in (claude / "CLAUDE.md").read_text()
 selected = root / "users" / "selected"
 selected.mkdir(parents=True)
@@ -157,11 +165,23 @@ assert all(path.read_bytes() == content for path, content in snapshot.items())
 r = run()
 assert r.returncode == 0 and "takes precedence" in r.stdout
 
+# Hook merging keeps unrelated settings and hooks, and never duplicates ours.
+settings = claude / "settings.json"
+data = json.loads(settings.read_text())
+data["model"] = "kept"
+data["hooks"]["SessionStart"].insert(0, {"hooks": [{"type": "command", "command": "echo personal"}]})
+data["hooks"]["Stop"] = [{"hooks": [{"type": "command", "command": "echo stop"}]}]
+data["hooks"]["SubagentStart"][0]["hooks"][0]["command"] = "/old/engine/bin/brain-context subagent --chunk 1"
+settings.write_text(json.dumps(data))
+r = run("--apply")
+assert r.returncode == 0, r.stderr
+data = json.loads(settings.read_text())
+assert data["model"] == "kept" and data["hooks"]["Stop"][0]["hooks"][0]["command"] == "echo stop"
+assert data["hooks"]["SessionStart"][0]["hooks"][0]["command"] == "echo personal"
+assert data["hooks"]["SessionStart"][1:] == groups["SessionStart"]
+assert data["hooks"]["SubagentStart"] == groups["SubagentStart"]
+
 # Malformed blocks fail before any writes, including the root bootstrap.
-space_brain = root / "brain with spaces"
-r = run("--brain", str(space_brain), "--apply")
-assert r.returncode != 0 and "without whitespace" in r.stderr
-assert not space_brain.exists()
 
 (claude / "CLAUDE.md").write_text(se.START + "\nunfinished block\n")
 missing_brain = root / "not-created"

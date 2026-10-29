@@ -2,6 +2,7 @@
 set -euo pipefail
 ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python3 "$ENGINE/tests/test_session_entry.py"
+python3 "$ENGINE/tests/test_context.py"
 bad_private_store='\.private-'"data"
 bad_ant='sk-'"ant-"
 bad_cc='CLAUDE_CODE_'"OAUTH_TOKEN"

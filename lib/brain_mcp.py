@@ -9,20 +9,20 @@ import re
 import subprocess
 
 from lib.config import load_config as load_engine_config
+from lib.context import chunks as context_chunks
 
 
 ENGINE = Path(__file__).resolve().parents[1]
 MAX_TEXT = 50_000
+USER_SUFFIXES = {".md", ".yaml", ".yml"}
 READ_TOOLS = {
     "health_check",
     "list_context",
     "list_nonprivate",
     "read_nonprivate",
     "get_core",
-    "get_discipline",
     "get_skill",
     "get_user_context",
-    "get_reference",
     "search",
     "status",
 }
@@ -71,14 +71,10 @@ def call_tool(
         return read_nonprivate(cfg, args.get("path", ""))
     if name == "get_core":
         return get_core(cfg)
-    if name == "get_discipline":
-        return get_discipline(cfg, args.get("name", ""))
     if name == "get_skill":
         return get_skill(cfg, args.get("name", ""))
     if name == "get_user_context":
         return get_user_context(cfg, args.get("field", ""))
-    if name == "get_reference":
-        return get_reference(cfg, args.get("path", ""))
     if name == "search":
         return search(cfg, args.get("query", ""))
     if name == "status":
@@ -110,7 +106,6 @@ def _is_private(path: Path) -> bool:
     parts = path.resolve(strict=False).parts
     return (
         ("private" in parts and "user" in parts)
-        or ("reference" in parts and "people" in parts)
         or "raw" in parts
         or "serve" in parts
     )
@@ -245,71 +240,35 @@ def _read(path: Path) -> str:
     return path.read_text(errors="replace")
 
 
-def _banner(path: Path, root: Path) -> str:
-    return f"# ===== {path.relative_to(root)} =====\n\n"
-
-
-def _md_files(root: Path) -> list[Path]:
+def _skill_names(cfg: BrainMcpConfig) -> list[str]:
+    root = cfg.agents / "skills"
     return sorted(
-        path
-        for path in root.rglob("*.md")
-        if path.is_file() and not path.is_symlink() and not _is_private(path)
-    )
+        path.name for path in root.iterdir()
+        if not path.name.startswith(".") and (path / "SKILL.md").is_file()
+    ) if root.is_dir() else []
+
+
+def _user_records(cfg: BrainMcpConfig) -> list[Path]:
+    return sorted(
+        path for path in cfg.user.rglob("*")
+        if path.is_file() and not path.is_symlink() and path.suffix in USER_SUFFIXES
+        and ".git" not in path.relative_to(cfg.user).parts and not _is_private(path)
+    ) if cfg.user.is_dir() else []
 
 
 def list_context(cfg: BrainMcpConfig) -> str:
-    disciplines = (
-        sorted(path.name for path in (cfg.agents / "rules").iterdir() if path.is_dir())
-        if (cfg.agents / "rules").exists()
-        else []
-    )
-    skills = (
-        sorted(
-            path.name
-            for path in (cfg.agents / "skills").iterdir()
-            if (path / "SKILL.md").is_file()
-        )
-        if (cfg.agents / "skills").exists()
-        else []
-    )
-    user_context = (
-        sorted(path.stem for path in (cfg.user / "profile").glob("*.md"))
-        if (cfg.user / "profile").exists()
-        else []
-    )
+    skills = _skill_names(cfg)
+    records = [path.relative_to(cfg.user).as_posix() for path in _user_records(cfg)]
     return (
         "# brain-mcp index\n\n"
-        "Private paths and reference/people are not exposed.\n\n"
-        "## disciplines\n- " + "\n- ".join(disciplines or ["(none)"]) + "\n\n"
+        "Private paths are not exposed. get_core returns the always-loaded set.\n\n"
         "## skills\n- " + "\n- ".join(skills or ["(none)"]) + "\n\n"
-        "## user context\n- " + "\n- ".join(user_context or ["(none)"]) + "\n"
+        "## user records\n- " + "\n- ".join(records or ["(none)"]) + "\n"
     )
 
 
 def get_core(cfg: BrainMcpConfig) -> str:
-    files = []
-    entry = cfg.agents / "README.md"
-    if entry.is_file():
-        files.append((entry, cfg.agents, "agents"))
-    if (cfg.agents / "core").exists():
-        files.extend((path, cfg.agents, "agents") for path in _md_files(cfg.agents / "core"))
-    entry = cfg.user / "README.md"
-    if entry.is_file():
-        files.append((entry, cfg.user, "user"))
-    return "\n\n".join(
-        f"# ===== {store}/{path.relative_to(root)} =====\n\n" + _read(path)
-        for path, root, store in files
-    )
-
-
-def get_discipline(cfg: BrainMcpConfig, name: str) -> str:
-    directory = _safe_existing(cfg.agents / "rules", name)
-    if not directory.is_dir():
-        raise ToolError(f"unknown discipline: {name}")
-    return "\n\n".join(
-        _banner(path, cfg.agents) + _read(path)
-        for path in _md_files(directory)
-    )
+    return "\n".join(context_chunks(cfg.agents, cfg.user if cfg.user.is_dir() else None, "session"))
 
 
 def get_skill(cfg: BrainMcpConfig, name: str) -> str:
@@ -318,17 +277,9 @@ def get_skill(cfg: BrainMcpConfig, name: str) -> str:
 
 def get_user_context(cfg: BrainMcpConfig, field: str) -> str:
     path = _reject_rel(field)
-    relative = path if len(path.parts) > 1 else Path("profile") / f"{path.name}.md"
-    return _read(_safe_existing(cfg.user, str(relative)))
-
-
-def get_reference(cfg: BrainMcpConfig, path: str) -> str:
-    target = _safe_existing(cfg.agents / "reference", path)
-    if target.is_dir():
-        return "\n".join(
-            sorted(child.name for child in target.iterdir() if not child.name.startswith("."))
-        )
-    return _read(target)
+    if not path.suffix and (cfg.user / path.with_suffix(".md")).is_file():
+        path = path.with_suffix(".md")
+    return _read(_safe_existing(cfg.user, str(path)))
 
 
 def search(cfg: BrainMcpConfig, query: str) -> str:
@@ -336,26 +287,20 @@ def search(cfg: BrainMcpConfig, query: str) -> str:
     if len(query) < 2:
         raise ToolError("query too short")
     hits = []
-    roots = (
-        cfg.agents / "core",
-        cfg.agents / "rules",
-        cfg.agents / "skills",
-        cfg.agents / "reference",
-        cfg.user / "profile",
-    )
-    for root in roots:
-        if not root.exists():
+    agents_files = [cfg.agents / rel for rel in _tracked_paths(cfg.agents) if rel.endswith(".md")]
+    skill_files = [cfg.agents / "skills" / name / "SKILL.md" for name in _skill_names(cfg)]
+    candidates = list(dict.fromkeys(agents_files + skill_files + _user_records(cfg)))
+    for path in candidates:
+        if not path.is_file() or _is_private(path):
             continue
-        for path in _md_files(root):
-            for line_number, line in enumerate(
-                path.read_text(errors="replace").splitlines(),
-                1,
-            ):
-                if query.casefold() in line.casefold():
-                    hits.append(
-                        f"{path.relative_to(cfg.brain)}:{line_number}: {line[:240]}"
-                    )
-                    break
-            if len(hits) >= 50:
+        for line_number, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+            if query.casefold() in line.casefold():
+                try:
+                    label = path.relative_to(cfg.brain)
+                except ValueError:
+                    label = path
+                hits.append(f"{label}:{line_number}: {line[:240]}")
                 break
+        if len(hits) >= 50:
+            break
     return "\n".join(hits) if hits else f"No matches for: {query}"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ops smoke - local ops dashboard, nudge, and backup-assist.
+# Ops smoke - local ops dashboard and backup-assist.
 set -euo pipefail
 ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BRAIN="$(cd "$ENGINE/.." && pwd)"
@@ -14,7 +14,6 @@ uv run python3 tests/test_dashboard_editing.py
 python3 backup/brain/user/test_backup.py
 python3 tests/test_backup_layout.py
 python3 dashboard/server.py --once --fixture
-python3 consolidation-nudge/nudge.py --config "$BRAIN/brain.config.toml" --dry-run
 BRAIN_CONFIG="$BRAIN/brain.config.toml" python3 backup/assist.py status
 manifest="${TMPDIR:-/tmp}/brain-os-ops-backup-manifest.json"
 python3 backup/assist.py manifest --root "$BRAIN" > "$manifest"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install a brain router and global agent adapters. Default is dry-run."""
+"""Install a brain router, global agent entry blocks, and brain-context hooks. Default is dry-run."""
 from __future__ import annotations
 
 import argparse
@@ -10,10 +10,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from lib.config import load_config
 from lib.session_entry import (
-    agents_adapter,
-    claude_adapter,
+    ENGINE,
+    entry_adapter,
     expanded_path,
+    hook_groups,
     merged_adapter,
+    merged_hooks,
     root_bootstrap,
     write_text_if_changed,
 )
@@ -46,10 +48,14 @@ def main(argv=None) -> int:
     claude = expanded_path(a.claude_home)
     apply = a.apply and not a.dry_run
 
+    entry = entry_adapter(agents, user)
+    groups = hook_groups(ENGINE, a.config)
     try:
         actions = [
-            (codex / "AGENTS.md", merged_adapter(codex / "AGENTS.md", agents_adapter(agents, user))),
-            (claude / "CLAUDE.md", merged_adapter(claude / "CLAUDE.md", claude_adapter(agents, user))),
+            (codex / "AGENTS.md", merged_adapter(codex / "AGENTS.md", entry)),
+            (claude / "CLAUDE.md", merged_adapter(claude / "CLAUDE.md", entry)),
+            (codex / "hooks.json", merged_hooks(codex / "hooks.json", groups)),
+            (claude / "settings.json", merged_hooks(claude / "settings.json", groups)),
         ]
     except ValueError as exc:
         ap.error(str(exc))
@@ -62,6 +68,8 @@ def main(argv=None) -> int:
     for path, text in actions:
         if write_text_if_changed(path, text, apply):
             report.append(f"WRITE {path}")
+            if path == codex / "hooks.json":
+                report.append("INFO Codex asks you to trust new or changed hooks before running them")
     if not apply:
         report.append("INFO dry-run only; pass --apply to write")
     print("\n".join(report) or "nothing to do")

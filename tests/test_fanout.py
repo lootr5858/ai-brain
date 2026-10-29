@@ -113,12 +113,9 @@ shutil.rmtree(tmp)
 
 from pathlib import Path as _Path
 root_templates = _Path(__file__).resolve().parents[1] / "templates" / "root"
-agents_tpl = (root_templates / "AGENTS.md").read_text()
-claude_tpl = (root_templates / "CLAUDE.md").read_text()
-for txt in (agents_tpl, claude_tpl):
-    assert "README.md" in txt and "BOOTSTRAP.md" not in txt
-    assert "/home/" not in txt
-    assert (".private-" + "data") not in txt
-assert claude_tpl == "@$AGENTS_ROOT/README.md\n@$USER_ROOT/README.md\n"
-assert "@import" not in agents_tpl
+entry_tpl = (root_templates / "ENTRY.md").read_text()
+assert "$AGENTS_ROOT/README.md" in entry_tpl and "$USER_ROOT/README.md" in entry_tpl
+assert "BOOTSTRAP.md" not in entry_tpl and "@" not in entry_tpl
+assert "/home/" not in entry_tpl
+assert (".private-" + "data") not in entry_tpl
 print("task5 ok")

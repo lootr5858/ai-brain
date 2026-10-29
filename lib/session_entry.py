@@ -2,13 +2,18 @@
 """Session-entry helpers for the root router and runtime adapters."""
 from __future__ import annotations
 
+import json
 import os
+import shlex
 from pathlib import Path
+
+from lib.context import CHUNKS
 
 ENGINE = Path(__file__).resolve().parents[1]
 TEMPLATES = ENGINE / "templates" / "root"
 START = "<!-- brain-engine:bootstrap:start -->"
 END = "<!-- brain-engine:bootstrap:end -->"
+HOOK_MARK = "bin/brain-context"
 
 
 def expanded_path(value: str | Path) -> Path:
@@ -19,27 +24,46 @@ def root_bootstrap() -> str:
     return (TEMPLATES / "BOOTSTRAP.md").read_text()
 
 
-def adapter(template: str, agents: str | Path, user: str | Path | None = None) -> str:
-    text = (TEMPLATES / template).read_text()
-    roots = {"$AGENTS_ROOT": expanded_path(agents)}
+def entry_adapter(agents: str | Path, user: str | Path | None = None) -> str:
+    """Global instruction block shared by every runtime; hooks do the loading."""
+    text = (TEMPLATES / "ENTRY.md").read_text()
     if user is None:
         text = text.replace(' and `$USER_ROOT/README.md`', '')
-        text = text.replace('@$USER_ROOT/README.md\n', '')
     else:
-        roots["$USER_ROOT"] = expanded_path(user)
-    for token, root in roots.items():
-        if template == "CLAUDE.md" and any(char.isspace() for char in str(root)):
-            raise ValueError("Claude @ imports require a store path without whitespace")
-        text = text.replace(token, str(root))
-    return text
+        text = text.replace("$USER_ROOT", str(expanded_path(user)))
+    return text.replace("$AGENTS_ROOT", str(expanded_path(agents)))
 
 
-def agents_adapter(agents: str | Path, user: str | Path | None = None) -> str:
-    return adapter("AGENTS.md", agents, user)
+def hook_groups(engine: str | Path, config: str | Path | None = None) -> dict[str, list[dict]]:
+    """Fixed hook commands; store layout changes never alter them."""
+    command = shlex.quote(str(expanded_path(engine) / HOOK_MARK))
+    if config is not None:
+        command += " --config " + shlex.quote(str(expanded_path(config)))
+
+    def groups(arguments: str) -> list[dict]:
+        return [
+            {"hooks": [{"type": "command", "command": f"{command} {arguments.format(chunk=chunk)}"}]}
+            for chunk in range(1, CHUNKS + 1)
+        ]
+
+    return {
+        "SessionStart": groups("session --chunk {chunk}"),
+        "SubagentStart": groups("subagent --chunk {chunk} --json SubagentStart"),
+    }
 
 
-def claude_adapter(agents: str | Path, user: str | Path | None = None) -> str:
-    return adapter("CLAUDE.md", agents, user)
+def merged_hooks(path: Path, groups: dict[str, list[dict]]) -> str:
+    """Replace our hook groups in a Claude settings or Codex hooks file; keep the rest."""
+    current = path.read_text() if path.exists() else ""
+    data = json.loads(current) if current.strip() else {}
+    hooks = data.setdefault("hooks", {})
+    for event, ours in groups.items():
+        kept = [
+            group for group in hooks.get(event, [])
+            if not any(HOOK_MARK in hook.get("command", "") for hook in group.get("hooks", []))
+        ]
+        hooks[event] = kept + ours
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
 def merged_adapter(path: Path, text: str) -> str:

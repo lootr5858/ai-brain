@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+"""Print an always-loaded brain context set, whole or as one hook-sized chunk."""
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lib.config import load_config
+from lib.context import CHUNKS, SETS, chunks, render
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("set", choices=SETS)
+    ap.add_argument("--chunk", type=int, help=f"1-{CHUNKS}; prints nothing when the set has fewer chunks")
+    ap.add_argument("--json", metavar="EVENT", help="wrap output as hook additionalContext for EVENT")
+    ap.add_argument("--config")
+    a = ap.parse_args(argv)
+    cfg = load_config(a.config)
+    user = Path(cfg["paths"]["user"])
+    packed = chunks(Path(cfg["paths"]["agents"]), user if user.is_dir() else None, a.set)
+    if a.chunk is None:
+        text = "\n".join(packed)
+    else:
+        if not 1 <= a.chunk <= CHUNKS:
+            ap.error(f"--chunk must be 1-{CHUNKS}")
+        text = packed[a.chunk - 1] if a.chunk <= len(packed) else ""
+    if text:
+        print(render(text, a.json))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

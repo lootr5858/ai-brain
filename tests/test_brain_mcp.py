@@ -31,16 +31,13 @@ for repo in (engine, agents, user):
     subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
 
 (agents / "core").mkdir()
-(agents / "README.md").write_text("# Agent store\nAGENT_ENTRY\n")
+(agents / "README.md").write_text("---\nsession:\n  - core/*.md\n---\n# Agent store\nAGENT_ENTRY\n")
 (agents / "core" / "behavior-rules.md").write_text("# Behavior rules\nAGENT_MINIMUM\n")
-(agents / "rules" / "asic-rtl").mkdir(parents=True)
-(agents / "rules" / "asic-rtl" / "scope.md").write_text("# ASIC scope\n")
 (agents / "skills" / "coding").mkdir(parents=True)
 (agents / "skills" / "coding" / "SKILL.md").write_text("# Coding skill\n")
-(agents / "reference").mkdir()
-(agents / "reference" / "glossary.md").write_text("synthesis\n")
-(user / "profile").mkdir()
-(user / "profile" / "hobbies.md").write_text("photography\n")
+(user / "inventory").mkdir()
+(user / "inventory" / "hobbies.yaml").write_text("photography\n")
+(user / "career.md").write_text("synthesis engineer\n")
 (user / "README.md").write_text("USER_ENTRY_MINIMUM\n")
 (user / "preferences.md").write_text("USER_PREFERENCES_LEGACY\n")
 (user / "optional.md").write_text("OPTIONAL_USER_CONTEXT\n")
@@ -62,10 +59,16 @@ assert "USER_ENTRY_MINIMUM" in core
 assert "USER_PREFERENCES_LEGACY" not in core
 assert "OPTIONAL_USER_CONTEXT" not in core
 assert "agents/README.md" in core and "user/README.md" in core
-assert "ASIC scope" in call_tool("get_discipline", {"name": "asic-rtl"}, cfg)
+assert "session:" not in core
+assert core.index("AGENT_ENTRY") < core.index("AGENT_MINIMUM") < core.index("USER_ENTRY_MINIMUM")
+assert "get_discipline" not in tools() and "get_reference" not in tools()
+index = call_tool("list_context", {}, cfg)
+assert "coding" in index and "inventory/hobbies.yaml" in index and "private" not in index
 assert "Coding skill" in call_tool("get_skill", {"name": "coding"}, cfg)
-assert "photography" in call_tool("get_user_context", {"field": "hobbies"}, cfg)
-assert "synthesis" in call_tool("get_reference", {"path": "glossary.md"}, cfg)
+assert "photography" in call_tool("get_user_context", {"field": "inventory/hobbies.yaml"}, cfg)
+assert "synthesis" in call_tool("get_user_context", {"field": "career"}, cfg)
+assert "career.md:1" in call_tool("search", {"query": "synthesis"}, cfg)
+assert "behavior-rules.md:2" in call_tool("search", {"query": "AGENT_MINIMUM"}, cfg)
 assert "engine public read" in call_tool(
     "read_nonprivate",
     {"path": "engine/README.md"},
