@@ -81,6 +81,12 @@ class ContextTest(unittest.TestCase):
         self.assertIn("agents/core/b.md", labels(out))
         self.assertIn("read these directly: `agents/core/a.md`", out)
 
+    def test_whole_set_uses_note_room(self):
+        write(self.agents / "skills" / "tone" / "SKILL.md", "x" * (context.BUDGET - context.NOTE_ROOM))
+        out = context.text(self.agents, self.user, "subagent")
+        self.assertLessEqual(len(out), context.BUDGET)
+        self.assertEqual(labels(out), ["agents/skills/tone/SKILL.md"])
+
     def run_hook(self, name: str) -> str:
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):

@@ -6,7 +6,7 @@ The agents README frontmatter names context sets as glob lists, for example:
     session:
       - core/*.md
     subagent:
-      - skills/minimum-work/SKILL.md
+      - core/working-style.md
     ---
 
 The session set also starts with the agents README and ends with the user README.
@@ -18,7 +18,7 @@ from __future__ import annotations
 from pathlib import Path, PurePosixPath
 
 BUDGET = 9000  # Claude Code replaces hook output of about 10k characters with a preview.
-NOTE_ROOM = 1000  # kept free for the closing note
+NOTE_ROOM = 1000  # kept free for the closing note when one prints
 SETS = ("session", "subagent")
 
 
@@ -88,12 +88,14 @@ def _section(label: str, path: Path) -> str:
 def text(agents: Path, user: Path | None, name: str) -> str:
     """Return a set's files, in manifest order, as one block of at most BUDGET characters."""
     selected, notes = files(agents, user, name)
+    loaded = [(label, _section(label, path)) for label, path in selected]
+    whole = not notes and sum(len(s) + 1 for _, s in loaded) <= BUDGET
+    room = BUDGET if whole else BUDGET - NOTE_ROOM
     sections: list[str] = []
     skipped: list[str] = []
     used = 0
-    for label, path in selected:
-        section = _section(label, path)
-        if used + len(section) + 1 <= BUDGET - NOTE_ROOM:
+    for label, section in loaded:
+        if used + len(section) + 1 <= room:
             sections.append(section)
             used += len(section) + 1
         else:
