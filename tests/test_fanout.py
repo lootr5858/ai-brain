@@ -116,9 +116,9 @@ root_templates = _Path(__file__).resolve().parents[1] / "templates" / "root"
 agents_tpl = (root_templates / "AGENTS.md").read_text()
 claude_tpl = (root_templates / "CLAUDE.md").read_text()
 for txt in (agents_tpl, claude_tpl):
-    assert "BOOTSTRAP.md" in txt
+    assert "README.md" in txt and "BOOTSTRAP.md" not in txt
     assert "/home/" not in txt
     assert (".private-" + "data") not in txt
-assert claude_tpl == "@$AGENTS_ROOT/BOOTSTRAP.md\n@$USER_ROOT/BOOTSTRAP.md\n"
+assert claude_tpl == "@$AGENTS_ROOT/README.md\n@$USER_ROOT/README.md\n"
 assert "@import" not in agents_tpl
 print("task5 ok")

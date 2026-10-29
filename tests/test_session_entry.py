@@ -27,18 +27,18 @@ agents = brain / "agents"
 user = brain / "user"
 for directory in (engine, agents, user):
     directory.mkdir(parents=True)
-    (directory / "BOOTSTRAP.md").write_text(f"# {directory.name} bootstrap\n")
+    (directory / "README.md").write_text(f"# {directory.name} store\n")
     (directory / "CONVENTIONS.md").write_text(f"# {directory.name} conventions\n")
 
 bootstrap = se.root_bootstrap()
-assert bootstrap == "Read `agents/BOOTSTRAP.md` and `user/BOOTSTRAP.md` relative to this file and follow them.\n"
+assert bootstrap == "Read `agents/README.md` and `user/README.md` relative to this file and follow them.\n"
 print("task1 ok")
 
 agents_txt = se.agents_adapter(agents, user)
 claude_txt = se.claude_adapter(agents, user)
-assert "BOOTSTRAP.md" in agents_txt and "@import" not in agents_txt
-assert claude_txt == f"@{agents}/BOOTSTRAP.md\n@{user}/BOOTSTRAP.md\n"
-assert agents_txt == f"Read and follow `{agents}/BOOTSTRAP.md` and `{user}/BOOTSTRAP.md`.\n"
+assert "README.md" in agents_txt and "@import" not in agents_txt
+assert claude_txt == f"@{agents}/README.md\n@{user}/README.md\n"
+assert agents_txt == f"Read and follow `{agents}/README.md` and `{user}/README.md`.\n"
 for text in (bootstrap, agents_txt, claude_txt):
     assert "CHANGE_ME" not in text
     assert (".private-" + "data") not in text
@@ -46,11 +46,9 @@ print("task2 ok")
 
 starter = ENGINE / "templates"
 starter_files = [
-    starter / "agents" / "BOOTSTRAP.md",
+    starter / "agents" / "README.md",
     starter / "agents" / "core" / "behavior-rules.md",
-    starter / "user" / "BOOTSTRAP.md",
-    starter / "user" / "preferences.md",
-    starter / "user" / "context-routing.md",
+    starter / "user" / "README.md",
 ]
 assert all(path.is_file() for path in starter_files)
 assert all("/home/" not in path.read_text() for path in starter_files)
@@ -103,7 +101,7 @@ for path in (codex / "AGENTS.md", claude / "CLAUDE.md"):
     text = path.read_text()
     assert text.startswith("Personal instructions.\n\n")
     assert text.endswith("\nTrailing instructions.")
-    assert str(home / "moved-brain" / "agents" / "BOOTSTRAP.md") in text
+    assert str(home / "moved-brain" / "agents" / "README.md") in text
     assert str(brain / "BOOTSTRAP.md") not in text
     assert text.count(se.START) == 1
 
@@ -127,7 +125,7 @@ r = run("--codex-home", str(custom_codex), "--claude-home", str(custom_claude), 
 assert r.returncode == 0 and r.stdout.strip() == "nothing to do", r.stderr + r.stdout
 
 # Preserve the local router; load exactly one selected user or none.
-local_bootstrap = "Read `agents/BOOTSTRAP.md` relative to this file and follow it.\n"
+local_bootstrap = "Read `agents/README.md` relative to this file and follow it.\n"
 (brain / "BOOTSTRAP.md").write_text(local_bootstrap)
 r = run("--no-user", "--apply")
 assert r.returncode == 0, r.stderr
@@ -136,16 +134,16 @@ assert se.agents_adapter(agents) in (codex / "AGENTS.md").read_text()
 assert str(user) not in (claude / "CLAUDE.md").read_text()
 selected = root / "users" / "selected"
 selected.mkdir(parents=True)
-(selected / "BOOTSTRAP.md").write_text("Selected user\n")
+(selected / "README.md").write_text("Selected user\n")
 other = root / "users" / "other"
 other.mkdir()
-(other / "BOOTSTRAP.md").write_text("Other user\n")
+(other / "README.md").write_text("Other user\n")
 r = run("--user-root", str(selected), "--agents-root", str(agents), "--apply")
 assert r.returncode == 0, r.stderr
 for path in (codex / "AGENTS.md", claude / "CLAUDE.md"):
     assert str(selected) in path.read_text() and str(other) not in path.read_text()
 r = run("--user-root", str(root / "missing-user"), "--apply")
-assert r.returncode != 0 and "requires BOOTSTRAP.md" in r.stderr
+assert r.returncode != 0 and "requires README.md" in r.stderr
 r = run("--apply")
 assert r.returncode == 0, r.stderr
 

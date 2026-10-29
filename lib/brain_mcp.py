@@ -288,15 +288,14 @@ def list_context(cfg: BrainMcpConfig) -> str:
 
 def get_core(cfg: BrainMcpConfig) -> str:
     files = []
-    bootstrap = cfg.agents / "BOOTSTRAP.md"
-    if bootstrap.is_file():
-        files.append((bootstrap, cfg.agents, "agents"))
+    entry = cfg.agents / "README.md"
+    if entry.is_file():
+        files.append((entry, cfg.agents, "agents"))
     if (cfg.agents / "core").exists():
         files.extend((path, cfg.agents, "agents") for path in _md_files(cfg.agents / "core"))
-    for name in ("BOOTSTRAP.md", "preferences.md", "context-routing.md"):
-        path = cfg.user / name
-        if path.is_file():
-            files.append((path, cfg.user, "user"))
+    entry = cfg.user / "README.md"
+    if entry.is_file():
+        files.append((entry, cfg.user, "user"))
     return "\n\n".join(
         f"# ===== {store}/{path.relative_to(root)} =====\n\n" + _read(path)
         for path, root, store in files

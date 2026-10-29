@@ -80,7 +80,7 @@ uv sync --locked
 
 Success ends with four `VERIFY ...: PASS` lines. The adapter command creates `BOOTSTRAP.md` in the brain directory and installs the entry instructions in `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`, so the brain is available from any project.
 
-Adapters read the configured `paths.agents/BOOTSTRAP.md` directly and include only `paths.user/BOOTSTRAP.md` when that file exists. `--agents-root` overrides the agent store; `--user-root` selects one user store and requires its bootstrap; `--no-user` omits user guidance. No user directories are scanned. `--brain` defaults these stores to its `agents/` and `user/` children unless overridden. Paths expand `$HOME`, `${HOME}`, and `~`. Claude receives native `@` imports; Codex receives a `Read and follow` instruction. Existing brain-root bootstraps are preserved; new ones use the two-store template. See [Claude memory](https://code.claude.com/docs/en/memory) and [Codex instructions](https://developers.openai.com/codex/guides/agents-md/).
+Adapters read the configured `paths.agents/README.md` directly and include only `paths.user/README.md` when that file exists. `--agents-root` overrides the agent store; `--user-root` selects one user store and requires its `README.md`; `--no-user` omits user guidance. No user directories are scanned. `--brain` defaults these stores to its `agents/` and `user/` children unless overridden. Paths expand `$HOME`, `${HOME}`, and `~`. Claude receives native `@` imports; Codex receives a `Read and follow` instruction. Existing brain-root bootstraps are preserved; new ones use the two-store template. See [Claude memory](https://code.claude.com/docs/en/memory) and [Codex instructions](https://developers.openai.com/codex/guides/agents-md/).
 
 The installer preserves existing global instructions and adds or updates its own block between `brain-engine:bootstrap` comment markers. It defaults to dry-run; use `--apply` to write. Client destinations honor `CODEX_HOME` and `CLAUDE_CONFIG_DIR`; `--codex-home` and `--claude-home` override them. A nonempty Codex `AGENTS.override.md` takes precedence over `AGENTS.md`, so the installer reports it for you to reconcile.
 
@@ -178,12 +178,12 @@ The starter store is deliberately small:
 
 ```text
 agents/
-├── BOOTSTRAP.md
+├── README.md
 └── core/
     └── behavior-rules.md
 ```
 
-`BOOTSTRAP.md` defines what always loads and how additional content is routed. Markdown files under `core/` always load. Keep that directory small.
+`README.md` is the store's entry point: it imports each `core/` file with one `@core/<file>.md` line and routes additional content. Claude expands those imports natively; Codex reads them as paths to load. Keep `core/` small.
 
 Add task-specific material only when needed:
 
@@ -294,19 +294,21 @@ After your real manual installation, verify that the intended skills appear, inv
 
 ## 7. Create your user store
 
-The starter store contains only always-required routing data:
+The starter store is a flat set of topic records behind one router:
 
 ```text
 user/
-├── BOOTSTRAP.md
-├── preferences.md
-└── context-routing.md
+├── README.md
+├── profile.md
+├── family.md
+├── career.md
+└── gear.yaml
 ```
 
-- Put durable communication and workflow choices in `preferences.md`.
-- Map clear task triggers to exact files in `context-routing.md`.
-- Add profile, inventory, journal, knowledge, project, or other directories only when you have content for them.
-- Do not route the entire store. If no route matches, the bootstrap tells the agent to ask instead of guessing.
+- `README.md` is the entry point: read and update rules plus a table linking each record. It always loads; records load only when relevant.
+- Keep one file per topic and register each new file in the `README.md` table.
+- Add a topic record only when you have content for it.
+- Do not load the entire store; agents read only the records a task needs.
 
 Personal context belongs here, not in `engine/`. Keep credentials and service secrets out of both stores.
 

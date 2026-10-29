@@ -31,7 +31,7 @@ for repo in (engine, agents, user):
     subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
 
 (agents / "core").mkdir()
-(agents / "BOOTSTRAP.md").write_text("# Agent bootstrap\n")
+(agents / "README.md").write_text("# Agent store\nAGENT_ENTRY\n")
 (agents / "core" / "behavior-rules.md").write_text("# Behavior rules\nAGENT_MINIMUM\n")
 (agents / "rules" / "asic-rtl").mkdir(parents=True)
 (agents / "rules" / "asic-rtl" / "scope.md").write_text("# ASIC scope\n")
@@ -41,9 +41,8 @@ for repo in (engine, agents, user):
 (agents / "reference" / "glossary.md").write_text("synthesis\n")
 (user / "profile").mkdir()
 (user / "profile" / "hobbies.md").write_text("photography\n")
-(user / "BOOTSTRAP.md").write_text("# User bootstrap\n")
-(user / "preferences.md").write_text("USER_PREFERENCES_MINIMUM\n")
-(user / "context-routing.md").write_text("USER_ROUTING_MINIMUM\n")
+(user / "README.md").write_text("USER_ENTRY_MINIMUM\n")
+(user / "preferences.md").write_text("USER_PREFERENCES_LEGACY\n")
 (user / "optional.md").write_text("OPTIONAL_USER_CONTEXT\n")
 (user / "private").mkdir()
 (user / "private" / "secret.md").write_text("TOPSECRET\n")
@@ -58,10 +57,11 @@ assert "propose_change" not in tools()
 assert call_tool("health_check", {}, cfg) == "pong from brain-mcp"
 core = call_tool("get_core", {}, cfg)
 assert "AGENT_MINIMUM" in core
-assert "USER_PREFERENCES_MINIMUM" in core
-assert "USER_ROUTING_MINIMUM" in core
+assert "AGENT_ENTRY" in core
+assert "USER_ENTRY_MINIMUM" in core
+assert "USER_PREFERENCES_LEGACY" not in core
 assert "OPTIONAL_USER_CONTEXT" not in core
-assert "agents/BOOTSTRAP.md" in core and "user/BOOTSTRAP.md" in core
+assert "agents/README.md" in core and "user/README.md" in core
 assert "ASIC scope" in call_tool("get_discipline", {"name": "asic-rtl"}, cfg)
 assert "Coding skill" in call_tool("get_skill", {"name": "coding"}, cfg)
 assert "photography" in call_tool("get_user_context", {"field": "hobbies"}, cfg)

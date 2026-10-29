@@ -23,13 +23,13 @@ def adapter(template: str, agents: str | Path, user: str | Path | None = None) -
     text = (TEMPLATES / template).read_text()
     roots = {"$AGENTS_ROOT": expanded_path(agents)}
     if user is None:
-        text = text.replace(' and `$USER_ROOT/BOOTSTRAP.md`', '')
-        text = text.replace('@$USER_ROOT/BOOTSTRAP.md\n', '')
+        text = text.replace(' and `$USER_ROOT/README.md`', '')
+        text = text.replace('@$USER_ROOT/README.md\n', '')
     else:
         roots["$USER_ROOT"] = expanded_path(user)
     for token, root in roots.items():
         if template == "CLAUDE.md" and any(char.isspace() for char in str(root)):
-            raise ValueError("Claude @ imports require a bootstrap path without whitespace")
+            raise ValueError("Claude @ imports require a store path without whitespace")
         text = text.replace(token, str(root))
     return text
 

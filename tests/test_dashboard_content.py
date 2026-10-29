@@ -32,6 +32,7 @@ for repository in (ENGINE, AGENTS, USER):
     (repository / "README.md").write_text("fixture\n")
 
 (USER / "profile").mkdir()
+(USER / "README.md").write_text("# Personal knowledge\n\nRouter for user records.\n")
 (USER / "reports" / "app").mkdir(parents=True)
 (USER / "preferences.md").write_text("# Preferences\n\nAlways concise.\n")
 (USER / "profile" / "goals.md").write_text(
@@ -175,7 +176,7 @@ print("dashboard content task2: PASS")
 )
 
 rebuilt = catalog.rebuild()
-assert rebuilt["indexed"] == 8
+assert rebuilt["indexed"] == 9
 assert rebuilt["skipped"] == 0
 assert rebuilt["errors"] == 2
 assert catalog.status()["available"] is True

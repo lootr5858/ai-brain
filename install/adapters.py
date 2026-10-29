@@ -27,7 +27,7 @@ def main(argv=None) -> int:
     ap.add_argument("--brain", type=Path, help="Brain directory; defaults to paths.brain in config")
     ap.add_argument("--agents-root", type=Path, help="Agent store; defaults to paths.agents")
     users = ap.add_mutually_exclusive_group()
-    users.add_argument("--user-root", type=Path, help="One user store; requires BOOTSTRAP.md")
+    users.add_argument("--user-root", type=Path, help="One user store; requires README.md")
     users.add_argument("--no-user", action="store_true", help="Load agent guidance only")
     ap.add_argument("--codex-home", default=os.environ.get("CODEX_HOME") or "~/.codex",
                     help="Codex directory (default: CODEX_HOME or ~/.codex)")
@@ -38,9 +38,9 @@ def main(argv=None) -> int:
     brain = expanded_path(a.brain or cfg["paths"]["brain"])
     agents = expanded_path(a.agents_root or (brain / "agents" if a.brain else cfg["paths"]["agents"]))
     user = expanded_path(a.user_root or (brain / "user" if a.brain else cfg["paths"]["user"]))
-    if a.user_root and not (user / "BOOTSTRAP.md").is_file():
-        ap.error("--user-root requires BOOTSTRAP.md")
-    if a.no_user or not (user / "BOOTSTRAP.md").is_file():
+    if a.user_root and not (user / "README.md").is_file():
+        ap.error("--user-root requires README.md")
+    if a.no_user or not (user / "README.md").is_file():
         user = None
     codex = expanded_path(a.codex_home)
     claude = expanded_path(a.claude_home)

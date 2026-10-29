@@ -19,7 +19,7 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 from markdown_it import MarkdownIt
 
 
-USER_ROOT_FILES = {"preferences.md", "context-routing.md"}
+USER_ROOT_FILES = {"README.md", "preferences.md", "context-routing.md"}
 USER_RAW_DIRS = {"profile", "inventory", "journal", "knowledge", "private", "projects"}
 USER_GENERATED_DIRS = {"reports"}
 AGENT_ROOT_FILES = {"BOOTSTRAP.md", "CONVENTIONS.md", "README.md", "skills.toml"}
