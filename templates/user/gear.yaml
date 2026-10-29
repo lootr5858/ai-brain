@@ -1,5 +1,0 @@
-# One record per physical item, with fields: name, purchased_on, warranty, status.
-# purchased_on: quoted date at known precision; unknown: null.
-# warranty: quoted period/terms; unknown: null.
-# status: owned | previously_owned.
-items: []
