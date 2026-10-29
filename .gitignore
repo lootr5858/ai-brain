@@ -5,7 +5,5 @@
 __pycache__/
 *.pyc
 .venv/
-.superpowers/
-docs/superpowers/
-# brain.config.toml lives at the container root, not here — but guard anyway.
-brain.config.toml
+*.egg-info/
+build/

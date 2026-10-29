@@ -1,0 +1,105 @@
+"""Installer: entry blocks and hooks for Claude Code and Codex."""
+from __future__ import annotations
+
+import json
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+from brain import install
+
+ENGINE = Path(__file__).resolve().parents[1]
+
+
+def old_groups(engine: str) -> list[dict]:
+    return [{"hooks": [{"type": "command", "command": f"{engine}/bin/brain-context session --chunk {n}"}]}
+            for n in range(1, 5)]
+
+
+class InstallTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        self.brain, self.claude, self.codex = root / "brain", root / "claude", root / "codex"
+        (self.brain / "agents").mkdir(parents=True)
+        (self.brain / "agents" / "README.md").write_text("---\nsession:\n---\n\nAgents entry\n")
+        (self.brain / "user").mkdir()
+        (self.brain / "user" / "README.md").write_text("User entry\n")
+
+    def run_install(self, apply: bool = True) -> list[str]:
+        return install.run(self.brain, self.claude, self.codex, apply)
+
+    def hooks(self, path: Path) -> dict:
+        return json.loads(path.read_text())["hooks"]
+
+    def test_dry_run_writes_nothing(self):
+        report = self.run_install(apply=False)
+        self.assertIn("INFO dry-run only; pass --apply to write", report)
+        self.assertEqual(sum(line.startswith("WRITE ") for line in report), 4)
+        self.assertFalse(self.claude.exists() or self.codex.exists())
+
+    def test_apply_writes_entry_and_one_hook_per_event(self):
+        self.run_install()
+        for text_file, hooks_file in ((self.claude / "CLAUDE.md", self.claude / "settings.json"),
+                                      (self.codex / "AGENTS.md", self.codex / "hooks.json")):
+            text = text_file.read_text()
+            self.assertIn(install.START, text)
+            self.assertIn(f"`{self.brain.resolve()}/agents/README.md` and `{self.brain.resolve()}/user/README.md`", text)
+            hooks = self.hooks(hooks_file)
+            self.assertEqual([len(hooks["SessionStart"]), len(hooks["SubagentStart"])], [1, 1])
+            self.assertIn(" -m brain hook session --brain ", hooks["SessionStart"][0]["hooks"][0]["command"])
+            self.assertIn(" -m brain hook subagent --brain ", hooks["SubagentStart"][0]["hooks"][0]["command"])
+
+    def test_replaces_old_hooks_and_keeps_the_rest(self):
+        other = {"hooks": [{"type": "command", "command": "echo mine"}]}
+        self.claude.mkdir()
+        (self.claude / "settings.json").write_text(json.dumps(
+            {"model": "opus", "hooks": {"SessionStart": [other] + old_groups("/x/engine"),
+                                        "SubagentStart": old_groups("/x/engine")}}))
+        (self.claude / "CLAUDE.md").write_text(f"Mine\n\n{install.START}\nold entry\n{install.END}\nAfter\n")
+        self.run_install()
+        settings = json.loads((self.claude / "settings.json").read_text())
+        self.assertEqual(settings["model"], "opus")
+        self.assertEqual(settings["hooks"]["SessionStart"][0], other)
+        self.assertEqual([len(settings["hooks"]["SessionStart"]), len(settings["hooks"]["SubagentStart"])], [2, 1])
+        text = (self.claude / "CLAUDE.md").read_text()
+        self.assertTrue(text.startswith("Mine\n") and text.endswith("After\n"))
+        self.assertNotIn("old entry", text)
+
+    def test_second_apply_is_a_no_op(self):
+        self.run_install()
+        self.assertEqual(self.run_install(), ["nothing to do"])
+
+    def test_malformed_block_is_an_error(self):
+        self.claude.mkdir()
+        (self.claude / "CLAUDE.md").write_text(f"{install.START}\n{install.START}\n{install.END}\n")
+        with self.assertRaises(ValueError):
+            self.run_install()
+
+    def test_no_user_store_leaves_user_out_of_entry(self):
+        (self.brain / "user" / "README.md").unlink()
+        self.run_install()
+        self.assertNotIn("user/README.md", (self.claude / "CLAUDE.md").read_text())
+
+    def test_missing_agents_store_is_an_error(self):
+        (self.brain / "agents" / "README.md").unlink()
+        with self.assertRaises(ValueError):
+            self.run_install()
+
+    def test_override_file_warns(self):
+        self.codex.mkdir()
+        (self.codex / "AGENTS.override.md").write_text("local override\n")
+        self.assertTrue(any(line.startswith("WARN ") for line in self.run_install()))
+
+    def test_installed_hook_command_runs(self):
+        self.run_install()
+        command = self.hooks(self.claude / "settings.json")["SessionStart"][0]["hooks"][0]["command"]
+        out = subprocess.run(command, shell=True, cwd=ENGINE, capture_output=True, text=True, check=True).stdout
+        self.assertIn("Agents entry", out)
+        self.assertIn("User entry", out)
+
+
+if __name__ == "__main__":
+    unittest.main()
