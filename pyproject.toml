@@ -17,4 +17,7 @@ dependencies = [
 brain = "brain.__main__:main"
 
 [tool.setuptools]
-packages = ["brain"]
+packages = ["brain", "brain.web"]
+
+[tool.setuptools.package-data]
+"brain.web" = ["static/**"]

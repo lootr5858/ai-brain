@@ -1,4 +1,4 @@
-"""One web app on loopback: remote MCP and its OAuth. A tunnel in front makes it public."""
+"""One web app on loopback: remote MCP, its OAuth, and the dashboard. A tunnel in front makes it public."""
 from __future__ import annotations
 
 import os
@@ -12,6 +12,7 @@ from starlette.applications import Starlette
 
 from brain import mcp as brain_mcp
 from brain.auth import CLIENT_HOSTS, AccessCheck, OAuth, load_secret
+from brain.web.api import dashboard
 
 
 def state_dir() -> Path:
@@ -30,6 +31,7 @@ def create(brain: Path, oauth: OAuth) -> Starlette:
         ),
     )
     app.routes.extend(oauth.routes())
+    app.routes.append(dashboard(brain, oauth.owner, oauth.issuer))
     return app
 
 

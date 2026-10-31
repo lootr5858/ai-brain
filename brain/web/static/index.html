@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Brain</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="vendor/marked.umd.js" defer></script>
+  <script src="vendor/purify.min.js" defer></script>
+  <script src="vendor/js-yaml.umd.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="scrim" id="scrim"></div>
+  <aside class="side" id="side" aria-label="Files">
+    <header class="brand">
+      <a href="#/">Brain</a>
+      <button class="ghost" id="new" type="button">+ New</button>
+    </header>
+    <input class="search" id="search" type="search" placeholder="Search" aria-label="Search all files" autocomplete="off">
+    <nav class="tree" id="tree"></nav>
+  </aside>
+  <main class="main" id="main" tabindex="-1">
+    <noscript><p class="empty">The dashboard needs JavaScript.</p></noscript>
+  </main>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

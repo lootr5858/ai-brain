@@ -34,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     install.add_argument("--codex-home", default=os.environ.get("CODEX_HOME") or "~/.codex",
                          help="Codex directory (default: CODEX_HOME or ~/.codex)")
     web_flags(install, required=False)
-    serve = sub.add_parser("serve", parents=[common], help="run the remote MCP server on loopback")
+    serve = sub.add_parser("serve", parents=[common], help="run the remote MCP server and dashboard on loopback")
     web_flags(serve, required=True)
     a = ap.parse_args(argv)
 

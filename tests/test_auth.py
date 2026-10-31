@@ -148,7 +148,8 @@ class DiscoveryTest(AuthCase):
                       response.headers["www-authenticate"])
 
     def test_unused_endpoints_absent(self):
-        self.assertEqual(self.client.post("/register", json={}).status_code, 404)
+        self.assertEqual(self.client.post("/register", json={}).status_code, 403)
+        self.assertEqual(self.client.post("/register", json={}, headers=dict(OWNER, Origin=ISSUER)).status_code, 405)
 
 
 class OwnerTest(AuthCase):
