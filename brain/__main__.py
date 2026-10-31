@@ -1,4 +1,4 @@
-"""brain: load the brain's always-loaded context into local agents."""
+"""brain: load the brain's always-loaded context into local agents; serve it to remote ones."""
 from __future__ import annotations
 
 import argparse
@@ -10,6 +10,14 @@ from pathlib import Path
 from brain import context
 
 BRAIN = Path(__file__).resolve().parents[2]  # engine checkout's parent holds agents/ and user/
+PORT = 8787
+
+
+def web_flags(parser: argparse.ArgumentParser, required: bool) -> None:
+    parser.add_argument("--public-url", required=required, help="HTTPS URL the tunnel serves")
+    parser.add_argument("--cf-team", required=required, help="Cloudflare Access team domain: TEAM.cloudflareaccess.com")
+    parser.add_argument("--cf-aud", required=required, help="Cloudflare Access application AUD tag")
+    parser.add_argument("--port", type=int, default=PORT, help=f"loopback port (default: {PORT})")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -25,6 +33,9 @@ def main(argv: list[str] | None = None) -> int:
                          help="Claude directory (default: CLAUDE_CONFIG_DIR or ~/.claude)")
     install.add_argument("--codex-home", default=os.environ.get("CODEX_HOME") or "~/.codex",
                          help="Codex directory (default: CODEX_HOME or ~/.codex)")
+    web_flags(install, required=False)
+    serve = sub.add_parser("serve", parents=[common], help="run the remote MCP server on loopback")
+    web_flags(serve, required=True)
     a = ap.parse_args(argv)
 
     if a.command == "hook":
@@ -36,10 +47,19 @@ def main(argv: list[str] | None = None) -> int:
             print(out)
         return 0
 
+    if a.command == "serve":
+        from brain import app
+
+        app.run(a.brain, a.public_url, a.cf_team, a.cf_aud, a.port)
+        return 0
+
     from brain import install as installer
 
+    web = (a.public_url, a.cf_team, a.cf_aud)
+    if any(web) and not all(web):
+        ap.error("--public-url, --cf-team, and --cf-aud go together")
     try:
-        report = installer.run(a.brain, a.claude_home, a.codex_home, a.apply)
+        report = installer.run(a.brain, a.claude_home, a.codex_home, a.apply, (*web, a.port) if all(web) else None)
     except ValueError as exc:
         ap.error(str(exc))
     print("\n".join(report))

@@ -1,4 +1,4 @@
-"""Write the brain entry block and context hooks into Claude Code and Codex."""
+"""Write the brain entry block and context hooks into Claude Code and Codex; optionally the server unit."""
 from __future__ import annotations
 
 import json
@@ -12,6 +12,18 @@ END = "<!-- brain-engine:bootstrap:end -->"
 ENTRY = ("Brain context: `{agents}/README.md`{user}, plus the files they list as always loaded. "
          "A session hook injects them; if they are not in context, read and follow them.")
 MARKS = ("bin/brain-context", " -m brain hook ")  # old chunked hooks, current hooks
+UNIT = """[Unit]
+Description=brain remote MCP server
+After=network-online.target
+
+[Service]
+ExecStart={command}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+"""
 
 
 def expanded(value: str | Path) -> Path:
@@ -62,6 +74,17 @@ def merged_block(path: Path, text: str) -> str:
     return current + separator + block + "\n"
 
 
+def unit(brain: Path, public_url: str, cf_team: str, cf_aud: str, port: int) -> str:
+    """A systemd user unit for `brain serve`; starting it stays the owner's step."""
+    command = shlex.join([sys.executable, "-m", "brain", "serve", "--brain", str(brain), "--public-url", public_url,
+                          "--cf-team", cf_team, "--cf-aud", cf_aud, "--port", str(port)])
+    return UNIT.format(command=command)
+
+
+def unit_path() -> Path:
+    return expanded(os.environ.get("XDG_CONFIG_HOME") or "~/.config") / "systemd" / "user" / "brain.service"
+
+
 def write_if_changed(path: Path, text: str, apply: bool) -> bool:
     if path.exists() and path.read_text() == text:
         return False
@@ -71,8 +94,8 @@ def write_if_changed(path: Path, text: str, apply: bool) -> bool:
     return True
 
 
-def run(brain: Path, claude_home: Path, codex_home: Path, apply: bool) -> list[str]:
-    """Plan or apply the four writes; return report lines."""
+def run(brain: Path, claude_home: Path, codex_home: Path, apply: bool, web: tuple | None = None) -> list[str]:
+    """Plan or apply the writes; `web` = (public URL, CF team, CF AUD, port) adds the server unit. Return report lines."""
     brain = expanded(brain)
     agents, user = brain / "agents", brain / "user"
     if not (agents / "README.md").is_file():
@@ -87,6 +110,8 @@ def run(brain: Path, claude_home: Path, codex_home: Path, apply: bool) -> list[s
         (codex / "hooks.json", merged_hooks(codex / "hooks.json", groups)),
         (claude / "settings.json", merged_hooks(claude / "settings.json", groups)),
     ]
+    if web:
+        actions.append((unit_path(), unit(brain, *web)))
     report = []
     override = codex / "AGENTS.override.md"
     if override.is_file() and override.read_text().strip():
@@ -96,6 +121,8 @@ def run(brain: Path, claude_home: Path, codex_home: Path, apply: bool) -> list[s
             report.append(f"WRITE {path}")
             if path == codex / "hooks.json":
                 report.append("INFO Codex asks you to trust new or changed hooks before running them")
+            if path == unit_path():
+                report.append("INFO start it: systemctl --user daemon-reload && systemctl --user enable --now brain.service")
     if not apply:
         report.append("INFO dry-run only; pass --apply to write")
     return report or ["nothing to do"]

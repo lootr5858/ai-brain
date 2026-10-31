@@ -1,13 +1,18 @@
 """Installer: entry blocks and hooks for Claude Code and Codex."""
 from __future__ import annotations
 
+import contextlib
+import io
 import json
+import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from brain import install
+from brain.__main__ import main
 
 ENGINE = Path(__file__).resolve().parents[1]
 
@@ -99,6 +104,53 @@ class InstallTest(unittest.TestCase):
         out = subprocess.run(command, shell=True, cwd=ENGINE, capture_output=True, text=True, check=True).stdout
         self.assertIn("Agents entry", out)
         self.assertIn("User entry", out)
+
+
+class UnitTest(unittest.TestCase):
+    WEB = ("https://brain.example.com", "team.cloudflareaccess.com", "aud-tag", 9000)
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.brain, self.claude, self.codex = self.root / "brain", self.root / "claude", self.root / "codex"
+        (self.brain / "agents").mkdir(parents=True)
+        (self.brain / "agents" / "README.md").write_text("# Agents\n")
+        patcher = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.root / "config")})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.path = self.root / "config" / "systemd" / "user" / "brain.service"
+
+    def run_install(self, apply: bool, web=WEB) -> list[str]:
+        return install.run(self.brain, self.claude, self.codex, apply, web)
+
+    def test_no_unit_without_web_settings(self):
+        self.run_install(True, None)
+        self.assertFalse(self.path.exists())
+
+    def test_dry_run_writes_nothing(self):
+        report = self.run_install(False)
+        self.assertIn(f"WRITE {self.path}", report)
+        self.assertFalse(self.path.exists())
+
+    def test_apply_writes_unit_and_says_how_to_start(self):
+        report = self.run_install(True)
+        text = self.path.read_text()
+        self.assertIn(" -m brain serve --brain ", text)
+        for value in ("--public-url https://brain.example.com", "--cf-team team.cloudflareaccess.com",
+                      "--cf-aud aud-tag", "--port 9000"):
+            self.assertIn(value, text)
+        self.assertTrue(any("systemctl --user enable --now brain.service" in line for line in report))
+
+    def test_rerun_changes_nothing(self):
+        self.run_install(True)
+        self.assertEqual(self.run_install(True), ["nothing to do"])
+
+    def test_cli_needs_all_web_flags(self):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            main(["install", "--brain", str(self.brain), "--claude-home", str(self.claude),
+                  "--codex-home", str(self.codex), "--public-url", "https://brain.example.com"])
+        self.assertFalse(self.path.exists())
 
 
 if __name__ == "__main__":
