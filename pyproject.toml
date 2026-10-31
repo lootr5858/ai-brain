@@ -6,7 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "brain-engine"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "mcp==2.3.0",
+]
 
 [project.scripts]
 brain = "brain.__main__:main"

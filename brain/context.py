@@ -85,12 +85,12 @@ def _section(label: str, path: Path) -> str:
     return f"# ===== {label} =====\n\n{text.rstrip()}\n"
 
 
-def text(agents: Path, user: Path | None, name: str) -> str:
-    """Return a set's files, in manifest order, as one block of at most BUDGET characters."""
+def text(agents: Path, user: Path | None, name: str, budget: int = BUDGET) -> str:
+    """Return a set's files, in manifest order, as one block of at most `budget` characters."""
     selected, notes = files(agents, user, name)
     loaded = [(label, _section(label, path)) for label, path in selected]
-    whole = not notes and sum(len(s) + 1 for _, s in loaded) <= BUDGET
-    room = BUDGET if whole else BUDGET - NOTE_ROOM
+    whole = not notes and sum(len(s) + 1 for _, s in loaded) <= budget
+    room = budget if whole else budget - NOTE_ROOM
     sections: list[str] = []
     skipped: list[str] = []
     used = 0
@@ -101,7 +101,7 @@ def text(agents: Path, user: Path | None, name: str) -> str:
         else:
             skipped.append(label)
     if skipped:
-        notes.append(f"over the {BUDGET}-character hook budget; read these directly: "
+        notes.append(f"over the {budget}-character hook budget; read these directly: "
                      + ", ".join(f"`{label}`" for label in skipped))
     if notes:
         sections.append("# ===== brain hook notes =====\n\n" + "\n".join(f"- {n}" for n in notes) + "\n")
