@@ -50,7 +50,7 @@ def skill_description(text: str) -> str:
     return value.strip().strip("'\"")
 
 
-def _skill_names(agents: Store) -> list[str]:
+def skill_names(agents: Store) -> list[str]:
     """A skill is a visible child of the skills folder with a SKILL.md."""
     folder = agents.root / SKILLS
     if not folder.is_dir():
@@ -93,7 +93,7 @@ def server(brain: Path, **settings: Any) -> MCPServer:
                          "load a matching skill with read_skill.")
     def list_skills() -> str:
         rows = []
-        for name in _skill_names(agents):
+        for name in skill_names(agents):
             try:
                 rows.append(f"{name}: {skill_description(agents.read(f'{SKILLS}/{name}/{SKILL_FILE}'))}")
             except StoreError:
@@ -103,7 +103,7 @@ def server(brain: Path, **settings: Any) -> MCPServer:
     @tool("read_skill", "Read a skill's SKILL.md, which also lists its supporting files, or pass `path` to read "
                         "one of those files. Follow the instructions it gives.")
     def read_skill(name: str, path: str = SKILL_FILE) -> str:
-        if name not in _skill_names(agents):
+        if name not in skill_names(agents):
             raise StoreError(f"no skill named {name!r}; see list_skills")
         base = f"{SKILLS}/{name}"
         text = agents.read(f"{base}/{path}")

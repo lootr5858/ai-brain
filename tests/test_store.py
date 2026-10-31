@@ -1,4 +1,4 @@
-"""Store: paths stay inside, text only, one commit per write, hand edits kept apart."""
+"""Store: paths stay inside, text only, one commit per write, hand edits kept apart, versions restorable."""
 from __future__ import annotations
 
 import subprocess
@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from brain.store import MAX_BYTES, MAX_HITS, Store, StoreError
+from brain.store import MAX_BYTES, MAX_HISTORY, MAX_HITS, Conflict, Store, StoreError, digest
 
 
 def git(root: Path, *args: str) -> str:
@@ -166,6 +166,170 @@ class WriteTest(StoreCase):
             self.store.create("new.md", "x\n")
         self.assertEqual(self.store.read("README.md"), before)
         self.assertFalse((self.root / "new.md").exists())
+
+
+class ReplaceTest(StoreCase):
+    def opened(self, rel: str = "README.md") -> str:
+        return digest(self.store.read(rel))
+
+    def test_saves_whole_file_as_one_commit(self):
+        commit = self.store.replace("README.md", "# New\n", self.opened(), "via dashboard")
+        self.assertEqual(self.store.read("README.md"), "# New\n")
+        self.assertEqual(git(self.root, "rev-parse", "--short", "HEAD"), commit)
+        self.assertEqual(self.subjects(), ["edit README.md", "start"])
+        self.assertEqual(git(self.root, "log", "-1", "--format=%b"), "via dashboard")
+
+    def test_stale_base_is_a_conflict(self):
+        base = self.opened()
+        self.store.edit("README.md", "Sam", "Alex", "via claude.ai")
+        with self.assertRaises(Conflict):
+            self.store.replace("README.md", "# Mine\n", base)
+        self.assertIn("Alex", self.store.read("README.md"))
+        self.assertEqual(len(self.subjects()), 2)
+
+    def test_hand_edit_after_opening_is_a_conflict(self):
+        base = self.opened()
+        path = self.root / "README.md"
+        path.write_text(path.read_text() + "Hand: yes\n")
+        with self.assertRaises(Conflict):
+            self.store.replace("README.md", "# Mine\n", base)
+        self.assertIn("Hand: yes", self.store.read("README.md"))
+
+    def test_hand_edits_recorded_first(self):
+        path = self.root / "README.md"
+        path.write_text(path.read_text() + "Hand: yes\n")
+        self.store.replace("README.md", "# Mine\n", self.opened())
+        self.assertEqual(self.subjects(), ["edit README.md", "record hand edits to README.md", "start"])
+        self.assertIn("+Hand: yes", git(self.root, "show", "HEAD~1"))
+
+    def test_no_change_oversize_and_missing_refused(self):
+        for rel, text, base in (("README.md", self.store.read("README.md"), self.opened()),
+                                ("README.md", "x" * (MAX_BYTES + 1), self.opened()),
+                                ("absent.md", "x", "0")):
+            with self.subTest(rel=rel, size=len(text)), self.assertRaises(StoreError):
+                self.store.replace(rel, text, base)
+        self.assertEqual(len(self.subjects()), 1)
+
+    def test_failed_commit_restores_file(self):
+        (self.root / ".git" / "hooks" / "pre-commit").write_text("#!/bin/sh\nexit 1\n")
+        (self.root / ".git" / "hooks" / "pre-commit").chmod(0o755)
+        before = self.store.read("README.md")
+        with self.assertRaises(StoreError):
+            self.store.replace("README.md", "# Mine\n", self.opened())
+        self.assertEqual(self.store.read("README.md"), before)
+
+
+class HistoryTest(StoreCase):
+    def test_lists_this_files_commits_newest_first(self):
+        self.store.edit("README.md", "Sam", "Alex", "via claude.ai")
+        self.store.create("other.md", "x\n")
+        rows = self.store.history("README.md")
+        self.assertEqual([row["subject"] for row in rows], ["edit README.md", "start"])
+        self.assertEqual([row["via"] for row in rows], ["claude.ai", ""])
+        self.assertEqual(rows[0]["sha"], git(self.root, "rev-parse", "--short", "HEAD~1"))
+        self.assertRegex(rows[0]["date"], r"^\d{4}-\d{2}-\d{2}T")
+
+    def test_stops_at_the_cap(self):
+        path = self.root / "README.md"
+        for number in range(MAX_HISTORY + 1):
+            path.write_text(f"{number}\n")
+            git(self.root, "commit", "-qam", f"change {number}")
+        self.assertEqual(len(self.store.history("README.md")), MAX_HISTORY)
+
+    def test_diff_of_a_commit_covers_only_this_file(self):
+        (self.root / "README.md").write_text("# New\n")
+        (self.root / "other.md").write_text("x\n")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "both")
+        diff = self.store.diff("README.md", git(self.root, "rev-parse", "--short", "HEAD"))
+        self.assertIn("+# New", diff)
+        self.assertNotIn("other.md", diff)
+
+    def test_diff_without_a_commit_is_uncommitted(self):
+        self.assertEqual(self.store.diff("README.md"), "")
+        path = self.root / "README.md"
+        path.write_text(path.read_text() + "Hand: yes\n")
+        self.assertIn("+Hand: yes", self.store.diff("README.md"))
+
+    def test_dirty_lists_changed_and_untracked(self):
+        self.assertEqual(self.store.dirty(), set())
+        # a first entry starting with git's status space must keep its whole path
+        (self.root / "README.md").write_text("changed\n")
+        (self.root / "inventory" / "new file.yaml").write_text("- x\n")
+        self.assertEqual(self.store.dirty(), {"README.md", "inventory/new file.yaml"})
+
+
+class RestoreTest(StoreCase):
+    def setUp(self):
+        super().setUp()
+        self.first = git(self.root, "rev-parse", "--short", "HEAD")
+        self.store.edit("README.md", "Sam", "Alex", "via claude.ai")
+
+    def test_restores_as_a_new_commit_of_one_file(self):
+        (self.root / "other.md").write_text("x\n")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "other")
+        commit = self.store.restore("README.md", self.first, "via dashboard")
+        self.assertIn("Sam", self.store.read("README.md"))
+        self.assertEqual(git(self.root, "rev-parse", "--short", "HEAD"), commit)
+        self.assertEqual(self.subjects()[0], f"restore README.md to {self.first}")
+        self.assertEqual(git(self.root, "show", "--name-only", "--format=", "HEAD"), "README.md")
+        self.assertTrue((self.root / "other.md").exists())
+
+    def test_restore_can_be_undone(self):
+        latest = git(self.root, "rev-parse", "--short", "HEAD")
+        self.store.restore("README.md", self.first)
+        self.store.restore("README.md", latest)
+        self.assertIn("Alex", self.store.read("README.md"))
+
+    def test_hand_edits_recorded_first(self):
+        path = self.root / "README.md"
+        path.write_text(path.read_text() + "Hand: yes\n")
+        self.store.restore("README.md", self.first)
+        self.assertEqual(self.subjects()[1], "record hand edits to README.md")
+        self.assertIn("+Hand: yes", git(self.root, "show", "HEAD~1"))
+        self.assertNotIn("Hand: yes", self.store.read("README.md"))
+
+    def test_current_version_refused(self):
+        latest = git(self.root, "rev-parse", "--short", "HEAD")
+        with self.assertRaises(StoreError):
+            self.store.restore("README.md", latest)
+        self.assertEqual(len(self.subjects()), 2)
+
+    def test_only_a_plain_commit_id_reaches_git(self):
+        for sha in ("--output=x", "HEAD", "abc", "../x", "", self.first + "\n", "A" * 7):
+            with self.subTest(sha=sha), self.assertRaises(StoreError):
+                self.store.restore("README.md", sha)
+        for sha in ("--output=x", "HEAD"):
+            with self.subTest(sha=sha), self.assertRaises(StoreError):
+                self.store.diff("README.md", sha)
+        self.assertFalse((self.root / "x").exists())
+
+    def test_file_absent_at_that_commit_refused(self):
+        self.store.create("new.md", "x\n")
+        with self.assertRaises(StoreError):
+            self.store.restore("new.md", self.first)
+        self.assertEqual(self.store.read("new.md"), "x\n")
+
+    def test_binary_version_refused(self):
+        path = self.root / "README.md"
+        path.write_bytes(b"\xff\xfe")
+        git(self.root, "commit", "-qam", "binary")
+        binary = git(self.root, "rev-parse", "--short", "HEAD")
+        path.write_text("text\n")
+        git(self.root, "commit", "-qam", "text")
+        with self.assertRaises(StoreError):
+            self.store.restore("README.md", binary)
+        self.assertEqual(self.store.read("README.md"), "text\n")
+
+
+class MatchesTest(StoreCase):
+    def test_tuples_under_a_path(self):
+        self.assertEqual(self.store.matches("LAPTOP", "inventory"), [("inventory/hardware.yaml", 1, "- laptop")])
+        self.assertEqual(self.store.matches("Sam", "inventory"), [])
+
+    def test_same_root_shares_a_lock(self):
+        self.assertIs(Store(self.root)._lock, self.store._lock)
 
 
 class RepoTest(unittest.TestCase):
