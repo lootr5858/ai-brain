@@ -87,6 +87,15 @@ class ContextTest(unittest.TestCase):
         self.assertLessEqual(len(out), context.BUDGET)
         self.assertEqual(labels(out), ["agents/skills/tone/SKILL.md"])
 
+    def test_unclosed_frontmatter_is_no_manifest(self):
+        text = "---\nsession:\n  - core/*.md\n"
+        self.assertEqual(context.split_frontmatter(text), ({}, text))
+
+    def test_frontmatter_comments_ignored(self):
+        manifest, body = context.split_frontmatter("---\n# note\nsession:\n  # note\n  - core/a.md\n---\n\nBody\n")
+        self.assertEqual(manifest, {"session": ["core/a.md"]})
+        self.assertEqual(body, "Body\n")
+
     def run_hook(self, name: str) -> str:
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):

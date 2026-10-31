@@ -153,6 +153,11 @@ class ReadTest(WebCase):
         self.assertEqual(tone["description"], "Write in the owner's voice.")
         self.assertEqual(tone["files"], ["SKILL.md", "refs/more.md"])
 
+    def test_tree_lists_an_unreadable_skill_without_a_description(self):
+        (self.brain / "agents" / "skills" / "tone" / "SKILL.md").write_text("x" * (MAX_BYTES + 1))
+        skills = {skill["name"]: skill for skill in self.client.get("/api/tree", headers=OWNER).json()["skills"]}
+        self.assertEqual(skills["tone"]["description"], "")
+
     def test_read_user_file(self):
         data = self.file()
         self.assertEqual(data["text"], "Name: Sam\n")

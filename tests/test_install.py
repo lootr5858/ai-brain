@@ -176,6 +176,29 @@ class UnitTest(unittest.TestCase):
                   "--codex-home", str(self.codex), "--public-url", "https://brain.example.com"])
         self.assertFalse(self.path.exists())
 
+    def cli(self, *flags: str) -> str:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(main(["install", "--brain", str(self.brain), "--claude-home", str(self.claude),
+                                   "--codex-home", str(self.codex), *flags]), 0)
+        return out.getvalue()
+
+    def test_cli_previews_by_default(self):
+        self.assertIn("dry-run only", self.cli())
+        self.assertFalse(self.claude.exists())
+        self.assertFalse(self.path.exists())
+
+    def test_cli_apply_with_web_flags_writes_everything(self):
+        self.cli("--apply", "--public-url", self.WEB[0], "--cf-team", self.WEB[1], "--cf-aud", self.WEB[2])
+        self.assertIn("--port 8787", self.path.read_text())
+        self.assertIn("SessionStart", (self.claude / "settings.json").read_text())
+
+    def test_cli_without_agents_store_is_a_usage_error(self):
+        (self.brain / "agents" / "README.md").unlink()
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as caught:
+            self.cli()
+        self.assertEqual(caught.exception.code, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

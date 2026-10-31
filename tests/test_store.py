@@ -71,6 +71,9 @@ class ReadTest(StoreCase):
     def test_list_folder_and_size(self):
         self.assertEqual(self.store.list("inventory"), [("inventory/hardware.yaml", 17)])
 
+    def test_list_one_file(self):
+        self.assertEqual(self.store.list("inventory/hardware.yaml"), [("inventory/hardware.yaml", 17)])
+
     def test_list_missing(self):
         with self.assertRaises(StoreError):
             self.store.list("nope")
@@ -328,6 +331,11 @@ class MatchesTest(StoreCase):
         self.assertEqual(self.store.matches("LAPTOP", "inventory"), [("inventory/hardware.yaml", 1, "- laptop")])
         self.assertEqual(self.store.matches("Sam", "inventory"), [])
 
+    def test_skips_what_it_cannot_read(self):
+        (self.root / "big.md").write_text("laptop\n" * MAX_BYTES)
+        (self.root / "photo.bin").write_bytes(b"\xff\xfelaptop")
+        self.assertEqual([rel for rel, _, _ in self.store.matches("laptop")], ["inventory/hardware.yaml"])
+
     def test_same_root_shares_a_lock(self):
         self.assertIs(Store(self.root)._lock, self.store._lock)
 
@@ -346,6 +354,12 @@ class RepoTest(unittest.TestCase):
         with self.assertRaises(StoreError):
             store.edit("a.md", "old", "new")
         self.assertEqual((root / "a.md").read_text(), "old\n")
+
+    def test_nothing_dirty_without_a_repo(self):
+        root = self.base / "user"
+        root.mkdir()
+        (root / "a.md").write_text("old\n")
+        self.assertEqual(Store(root).dirty(), set())
 
     def test_writes_refused_inside_an_enclosing_repo(self):
         (self.base / "keep.md").write_text("x\n")

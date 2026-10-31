@@ -1,6 +1,7 @@
 """MCP tools through an in-memory client: discovery, hints, refusals, writes."""
 from __future__ import annotations
 
+import shutil
 import sys
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from pathlib import Path
 from mcp import Client
 
 from brain import context, mcp as brain_mcp
+from brain.store import MAX_BYTES
 from test_store import git, repo
 
 MANIFEST = "---\nsession:\n  - core/*.md\nsubagent:\n  - core/style.md\n---\n\n# Agents\n"
@@ -68,6 +70,22 @@ class McpTest(unittest.IsolatedAsyncioTestCase):
         async with Client(self.server) as client:
             text, _ = await self.call(client, "list_skills")
         self.assertEqual(text.splitlines(), ["linked: Folded text.", "tone: Write in the owner's voice."])
+
+    async def list_skills(self) -> str:
+        async with Client(self.server) as client:
+            return (await self.call(client, "list_skills"))[0]
+
+    async def test_no_skills_folder(self):
+        shutil.rmtree(self.brain / "agents" / "skills")
+        self.assertEqual(await self.list_skills(), "No skills.")
+
+    async def test_skill_without_frontmatter_has_no_description(self):
+        (self.brain / "agents" / "skills" / "tone" / "SKILL.md").write_text("# Tone\n")
+        self.assertIn("tone: ", (await self.list_skills()).splitlines())
+
+    async def test_unreadable_skill_left_out(self):
+        (self.brain / "agents" / "skills" / "tone" / "SKILL.md").write_text("x" * (MAX_BYTES + 1))
+        self.assertEqual((await self.list_skills()).splitlines(), ["linked: Folded text."])
 
     async def test_read_skill_lists_supporting_files(self):
         async with Client(self.server) as client:
