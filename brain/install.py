@@ -36,8 +36,11 @@ def entry(agents: Path, user: Path | None) -> str:
 
 
 def hook_groups(brain: Path) -> dict[str, list[dict]]:
-    """One hook per event; the commands never change when store files move."""
-    base = f"{shlex.quote(sys.executable)} -m brain hook"
+    """One hook per event; the commands never change when store files move.
+
+    `-P` keeps the working directory off sys.path, so a project's own `brain` package can't run instead.
+    """
+    base = f"{shlex.quote(sys.executable)} -P -m brain hook"
 
     def group(name: str) -> list[dict]:
         command = f"{base} {name} --brain {shlex.quote(str(brain))}"
@@ -76,7 +79,7 @@ def merged_block(path: Path, text: str) -> str:
 
 def unit(brain: Path, public_url: str, cf_team: str, cf_aud: str, port: int) -> str:
     """A systemd user unit for `brain serve`; starting it stays the owner's step."""
-    command = shlex.join([sys.executable, "-m", "brain", "serve", "--brain", str(brain), "--public-url", public_url,
+    command = shlex.join([sys.executable, "-P", "-m", "brain", "serve", "--brain", str(brain), "--public-url", public_url,
                           "--cf-team", cf_team, "--cf-aud", cf_aud, "--port", str(port)])
     return UNIT.format(command=command)
 

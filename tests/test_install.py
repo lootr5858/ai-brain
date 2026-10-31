@@ -54,8 +54,8 @@ class InstallTest(unittest.TestCase):
             self.assertIn(f"`{self.brain.resolve()}/agents/README.md` and `{self.brain.resolve()}/user/README.md`", text)
             hooks = self.hooks(hooks_file)
             self.assertEqual([len(hooks["SessionStart"]), len(hooks["SubagentStart"])], [1, 1])
-            self.assertIn(" -m brain hook session --brain ", hooks["SessionStart"][0]["hooks"][0]["command"])
-            self.assertIn(" -m brain hook subagent --brain ", hooks["SubagentStart"][0]["hooks"][0]["command"])
+            self.assertIn(" -P -m brain hook session --brain ", hooks["SessionStart"][0]["hooks"][0]["command"])
+            self.assertIn(" -P -m brain hook subagent --brain ", hooks["SubagentStart"][0]["hooks"][0]["command"])
 
     def test_replaces_old_hooks_and_keeps_the_rest(self):
         other = {"hooks": [{"type": "command", "command": "echo mine"}]}
@@ -72,6 +72,15 @@ class InstallTest(unittest.TestCase):
         text = (self.claude / "CLAUDE.md").read_text()
         self.assertTrue(text.startswith("Mine\n") and text.endswith("After\n"))
         self.assertNotIn("old entry", text)
+
+    def test_replaces_hooks_from_before_the_flag(self):
+        before = {"hooks": [{"type": "command", "command": "/x/python -m brain hook session --brain /x"}]}
+        self.claude.mkdir()
+        (self.claude / "settings.json").write_text(json.dumps({"hooks": {"SessionStart": [before]}}))
+        self.run_install()
+        groups = self.hooks(self.claude / "settings.json")["SessionStart"]
+        self.assertEqual(len(groups), 1)
+        self.assertIn(" -P -m brain hook session --brain ", groups[0]["hooks"][0]["command"])
 
     def test_second_apply_is_a_no_op(self):
         self.run_install()
@@ -101,9 +110,24 @@ class InstallTest(unittest.TestCase):
     def test_installed_hook_command_runs(self):
         self.run_install()
         command = self.hooks(self.claude / "settings.json")["SessionStart"][0]["hooks"][0]["command"]
-        out = subprocess.run(command, shell=True, cwd=ENGINE, capture_output=True, text=True, check=True).stdout
+        out = self.run_hook(command, ENGINE)
         self.assertIn("Agents entry", out)
         self.assertIn("User entry", out)
+
+    def test_hook_ignores_a_brain_package_in_the_working_directory(self):
+        self.run_install()
+        project = self.brain.parent / "project"
+        (project / "brain").mkdir(parents=True)
+        (project / "brain" / "__init__.py").write_text("")
+        (project / "brain" / "__main__.py").write_text('print("project code ran")\n')
+        command = self.hooks(self.claude / "settings.json")["SessionStart"][0]["hooks"][0]["command"]
+        out = self.run_hook(command, project)
+        self.assertNotIn("project code ran", out)
+        self.assertIn("Agents entry", out)
+
+    def run_hook(self, command: str, cwd: Path) -> str:
+        env = dict(os.environ, PYTHONPATH=str(ENGINE))
+        return subprocess.run(command, shell=True, cwd=cwd, env=env, capture_output=True, text=True, check=True).stdout
 
 
 class UnitTest(unittest.TestCase):
@@ -136,7 +160,7 @@ class UnitTest(unittest.TestCase):
     def test_apply_writes_unit_and_says_how_to_start(self):
         report = self.run_install(True)
         text = self.path.read_text()
-        self.assertIn(" -m brain serve --brain ", text)
+        self.assertIn(" -P -m brain serve --brain ", text)
         for value in ("--public-url https://brain.example.com", "--cf-team team.cloudflareaccess.com",
                       "--cf-aud aud-tag", "--port 9000"):
             self.assertIn(value, text)
