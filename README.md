@@ -227,7 +227,7 @@ A window opens: sign in with your email and the PIN Cloudflare sends, then press
 |---|---|---|
 | `get_core` | always-loaded set | agents, read |
 | `list_skills` · `read_skill` | skill list · `SKILL.md` or one supporting file | agents, read |
-| `list` · `read` · `search` | browse knowledge | user, read |
+| `list` · `read` · `search` | browse knowledge; `read` also takes `agents/…` for the rule files the always-loaded set points to | user, read · agents, read |
 | `edit` | replace exact text that occurs once | user, write |
 | `create` | new file in an existing folder | user, write |
 

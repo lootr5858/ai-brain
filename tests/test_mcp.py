@@ -134,6 +134,49 @@ class McpTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(error)
         self.assertIn("exactly once", text)
 
+    async def test_rule_files_read_by_their_label(self):
+        async with Client(self.server) as client:
+            text, error = await self.call(client, "read", path="agents/core/style.md")
+            self.assertFalse(error, text)
+            self.assertEqual(text, (self.brain / "agents" / "core" / "style.md").read_text())
+            for path in ("agents/.git/config", "agents/../user/profile.md"):
+                with self.subTest(path=path):
+                    text, error = await self.call(client, "read", path=path)
+                    self.assertTrue(error)
+                    self.assertIn("not a path inside", text)
+
+    async def test_user_label_accepted(self):
+        async with Client(self.server) as client:
+            self.assertEqual((await self.call(client, "read", path="user/profile.md"))[0], "Name: Sam\n")
+            self.assertEqual((await self.call(client, "list", path="user"))[0], (await self.call(client, "list"))[0])
+            self.assertFalse((await self.call(client, "edit", path="user/profile.md", old="Sam", new="Alex"))[1])
+            self.assertFalse((await self.call(client, "create", path="user/notes.md", content="New.\n"))[1])
+        self.assertEqual(git(self.user, "log", "--format=%s").splitlines(), ["create notes.md", "edit profile.md", "start"])
+
+    async def test_rule_files_read_only(self):
+        before = (self.brain / "agents" / "core" / "style.md").read_text()
+        async with Client(self.server) as client:
+            for tool, arguments in (("edit", {"path": "agents/core/style.md", "old": "Rule.", "new": "x"}),
+                                    ("create", {"path": "agents/core/new.md", "content": "x"})):
+                with self.subTest(tool=tool):
+                    text, error = await self.call(client, tool, **arguments)
+                    self.assertTrue(error)
+                    self.assertIn("read-only", text)
+        self.assertEqual((self.brain / "agents" / "core" / "style.md").read_text(), before)
+        self.assertFalse((self.brain / "agents" / "core" / "new.md").exists())
+
+    async def test_own_folder_named_like_a_label_stays_literal(self):
+        (self.user / "agents").mkdir()
+        (self.user / "agents" / "x.md").write_text("Mine.\n")
+        async with Client(self.server) as client:
+            self.assertEqual((await self.call(client, "read", path="agents/x.md"))[0], "Mine.\n")
+
+    async def test_bare_rule_path_names_the_label(self):
+        async with Client(self.server) as client:
+            text, error = await self.call(client, "read", path="core/style.md")
+        self.assertTrue(error)
+        self.assertIn("`agents/core/style.md`", text)
+
 
 if __name__ == "__main__":
     unittest.main()
