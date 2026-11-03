@@ -193,6 +193,19 @@ class UnitTest(unittest.TestCase):
         self.assertIn("--port 8787", self.path.read_text())
         self.assertIn("SessionStart", (self.claude / "settings.json").read_text())
 
+    def test_cli_public_url_must_be_https_host(self):
+        for value in ("brain.example.com", "http://brain.example.com", "https://", "https://brain.example.com/brain"):
+            err = io.StringIO()
+            with self.subTest(value=value), contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as caught:
+                self.cli("--apply", "--public-url", value, "--cf-team", self.WEB[1], "--cf-aud", self.WEB[2])
+            self.assertEqual(caught.exception.code, 2)
+            self.assertIn("https://HOST", err.getvalue())
+        self.assertFalse(self.path.exists())
+        self.assertFalse(self.claude.exists())
+        for value in ("https://brain.example.com/", "https://brain.example.com:8443"):
+            with self.subTest(value=value):
+                self.assertIn("dry-run only", self.cli("--public-url", value, "--cf-team", self.WEB[1], "--cf-aud", self.WEB[2]))
+
     def test_cli_without_agents_store_is_a_usage_error(self):
         (self.brain / "agents" / "README.md").unlink()
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as caught:

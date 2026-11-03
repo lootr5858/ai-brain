@@ -189,7 +189,7 @@ systemctl --user enable --now brain.service
 loginctl enable-linger "$USER"           # keep running after logout
 ```
 
-`--public-url` takes `https://` and must match the tunnel hostname; without `https://` the service exits at start, and `/mcp` answers 421 to any other host. Default port 8787: change with `--port`. To run it by hand: `brain serve` with the same flags. Logs: `journalctl --user -u brain.service`.
+`--public-url` takes `https://HOST` and must match the tunnel hostname: `brain install` and `brain serve` refuse anything else, and `/mcp` answers 421 to any other host. Default port 8787: change with `--port`. To run it by hand: `brain serve` with the same flags. Logs: `journalctl --user -u brain.service`.
 
 **7. Check from outside:**
 

@@ -6,6 +6,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from brain import context
 
@@ -13,8 +14,20 @@ BRAIN = Path(__file__).resolve().parents[2]  # engine checkout's parent holds ag
 PORT = 8787
 
 
+def public_url(value: str) -> str:
+    """The tunnel's origin. OAuth names it in every token, so a bad one must stop here, not at start."""
+    try:
+        parts = urlsplit(value)
+        ok = parts.scheme == "https" and parts.hostname and not (parts.path.strip("/") or parts.query or parts.fragment)
+    except ValueError:
+        ok = False
+    if not ok:
+        raise argparse.ArgumentTypeError(f"needs https://HOST, for example https://brain.example.com (got {value!r})")
+    return value
+
+
 def web_flags(parser: argparse.ArgumentParser, required: bool) -> None:
-    parser.add_argument("--public-url", required=required, help="HTTPS URL the tunnel serves")
+    parser.add_argument("--public-url", type=public_url, required=required, help="HTTPS URL the tunnel serves: https://HOST")
     parser.add_argument("--cf-team", required=required, help="Cloudflare Access team domain: TEAM.cloudflareaccess.com")
     parser.add_argument("--cf-aud", required=required, help="Cloudflare Access application AUD tag")
     parser.add_argument("--port", type=int, default=PORT, help=f"loopback port (default: {PORT})")

@@ -1,7 +1,9 @@
 """`brain serve` for real: one process on a free loopback port, which paths are public, where it binds."""
 from __future__ import annotations
 
+import contextlib
 import http.client
+import io
 import os
 import socket
 import stat
@@ -90,6 +92,16 @@ class BindTest(unittest.TestCase):
                 mock.patch("uvicorn.run") as run:
             self.assertEqual(main(["serve", "--brain", tmp, *FLAGS, "--port", "9000"]), 0)
         self.assertEqual(run.call_args.kwargs, {"host": "127.0.0.1", "port": 9000})
+
+    def test_bad_public_url_stops_before_serving(self):
+        flags = [HOST if flag == f"https://{HOST}" else flag for flag in FLAGS]
+        err = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp, mock.patch("uvicorn.run") as run, \
+                contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as caught:
+            main(["serve", "--brain", tmp, *flags])
+        self.assertEqual(caught.exception.code, 2)
+        self.assertIn("--public-url", err.getvalue())
+        run.assert_not_called()
 
 
 if __name__ == "__main__":
