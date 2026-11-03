@@ -206,7 +206,7 @@ Changes take about a minute to reach Cloudflare. Probe again before changing any
 | Got | Fix |
 |---|---|
 | 302 on a public path | that path's app is missing, mistyped, or not using `bypass`. The `kid=` in the redirect names the app that caught it: the `brain` app's AUD means no path app matched. Still 302 on a `.well-known` path? Add that exact path to the `brain-wellknown` app |
-| 200 on `/` | the Brain app's Path isn't empty, or its policy isn't Allow |
+| 403 on `/` | Access isn't guarding it: the Brain app's Path isn't empty, or its policy isn't Allow |
 | 502 | nothing on port 8787: `systemctl --user status brain.service`, then the logs |
 | logged in, still refused | wrong `--cf-team` or `--cf-aud` |
 
