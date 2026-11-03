@@ -128,39 +128,70 @@ git -C user commit -m "Start"
 
 ## Run the server
 
-Needs a domain on Cloudflare, Cloudflare Zero Trust, and `cloudflared`. Run commands from `~/brain`. Replace `brain.example.com`, `TEAM`, and `AUD`.
+Needs a domain on Cloudflare (active zone), a Cloudflare Zero Trust organization, and `cloudflared`. Run commands from `~/brain`.
 
-**1. Tunnel:** publish `brain.example.com` → `http://127.0.0.1:8787` ([guide](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/)).
+| Placeholder | Replace with |
+|---|---|
+| `brain.example.com` | the hostname you publish the brain on |
+| `you@example.com` | the email you log in with |
+| `TEAM_NAME.cloudflareaccess.com` | your Zero Trust team domain (step 5) |
+| `ZERO_TRUST_APP_AUD` | the AUD tag of the Brain app (step 5) |
 
-**2. Access apps:** both are needed.
+The tunnel alone checks no identity: anyone with the URL reaches the server. Access does, and the engine needs it: the dashboard and `/authorize` refuse requests without an Access login. Create the Access apps before the tunnel route.
 
-| App | Covers | Policy | Why |
+**1. Login method:** Zero Trust → Integrations → Identity providers. One-time PIN listed? Done. Else Add an identity provider → One-time PIN.
+
+**2. Two policies:** Zero Trust → Access controls → Policies → Add a policy. Make each once; the apps reuse them.
+
+| Policy name | Action | Include | Attach to |
 |---|---|---|---|
-| Brain | whole host | Allow: your email | dashboard and `/authorize` |
-| Brain public, 1 per path | `/mcp` · `/token` · `/.well-known/*` | [Bypass](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/common-policies/): Everyone | web agents call these with no browser login; OAuth guards `/mcp` |
+| `owner` | Allow | Emails → `you@example.com` | the `brain` app only |
+| `bypass` | [Bypass](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/common-policies/) | Everyone | the 3 path apps only |
 
-The engine checks the Access login too: everything outside the public paths is refused without it.
+⚠️ Never attach `bypass` to the `brain` app: that makes the dashboard and `/authorize` public, so anyone could approve their own connection.
 
-**3. Copy two values** from the Brain app ([where](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)):
+**3. Four Access apps.** For each row: Zero Trust → Access controls → Applications → Add an application → Self-hosted and private → Public DNS. Fill in the hostname, pick the policy under Add existing policy, set the name, then Create.
 
-- team domain: `TEAM.cloudflareaccess.com`
-- AUD tag: Access controls → Applications → Configure → Additional settings
+| Name | Subdomain + domain | Path | Policy |
+|---|---|---|---|
+| `brain` | `brain.example.com` | empty | `owner` |
+| `brain-mcp` | `brain.example.com` | `mcp` | `bypass` |
+| `brain-token` | `brain.example.com` | `token` | `bypass` |
+| `brain-wellknown` | `brain.example.com` | `.well-known/*` | `bypass` |
 
-**4. Install and start:**
+- Each path gets its own app. Don't add paths to the `brain` app with Add public hostname: they would get its login.
+- The Path box sits right of Domain; widen the window if you can't see it.
+- `brain` app only: Authentication → One-time PIN only, Apply instant authentication on. Additional settings → App Launcher tile domain Default, or turn the tile off.
+- Path apps: leave Authentication, session duration, and Additional settings as they are. Bypass ignores them.
+
+Why the path apps: claude.ai and ChatGPT call these paths from their own servers, with no browser to type a PIN in. Access lets them through; the engine's OAuth guards `/mcp` instead, and a token only comes from `/authorize`, which stays behind your login.
+
+**4. Tunnel:** Networking → Tunnels → Create a tunnel → install the connector it shows. Add a published application route: `brain.example.com` → `http://127.0.0.1:8787` ([guide](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/get-started/create-remote-tunnel/)). Leave Protect with Access off: the engine checks the Access token itself, and the public paths carry none.
+
+**5. Copy two values:**
+
+| Flag | What | Where |
+|---|---|---|
+| `--cf-team` | team domain: Access login host, also serves the keys that sign login tokens | Zero Trust → Access controls → Access settings → App Launcher box; or the `Location` of `curl -sI https://brain.example.com/` |
+| `--cf-aud` | Application Audience (AUD) tag of the Brain app: public ID, not a secret | Applications → Brain → Edit → Additional settings → AUD tag; also the `kid=` in that `Location` |
+
+`--cf-team` takes no `https://`. Use the Brain app's AUD, not a public-path app's: Bypass requests carry no Access token. The engine accepts a login only when the token is signed by the team's keys, issued by `https://TEAM_NAME.cloudflareaccess.com`, and addressed to `ZERO_TRUST_APP_AUD`.
+
+**6. Install and start:**
 
 ```bash
 engine/.venv/bin/brain install --apply \
   --public-url https://brain.example.com \
-  --cf-team TEAM.cloudflareaccess.com \
-  --cf-aud AUD
+  --cf-team TEAM_NAME.cloudflareaccess.com \
+  --cf-aud ZERO_TRUST_APP_AUD
 systemctl --user daemon-reload
 systemctl --user enable --now brain.service
 loginctl enable-linger "$USER"           # keep running after logout
 ```
 
-`--public-url` must match the tunnel hostname; `/mcp` answers 421 to any other host. Default port 8787: change with `--port`. To run it by hand: `brain serve` with the same flags.
+`--public-url` takes `https://` and must match the tunnel hostname; without `https://` the service exits at start, and `/mcp` answers 421 to any other host. Default port 8787: change with `--port`. To run it by hand: `brain serve` with the same flags. Logs: `journalctl --user -u brain.service`.
 
-**5. Check from outside:**
+**7. Check from outside:**
 
 ```bash
 probe() { curl -s -o /dev/null -w '%{http_code}\n' "$@"; }
@@ -170,16 +201,27 @@ probe -X POST https://brain.example.com/mcp                               # 401
 probe https://brain.example.com/                                          # 302 to the login
 ```
 
-Got 302 on a `.well-known` line? Add that exact path to the Bypass apps.
+Changes take about a minute to reach Cloudflare. Probe again before changing anything.
+
+| Got | Fix |
+|---|---|
+| 302 on a public path | that path's app is missing, mistyped, or not using `bypass`. The `kid=` in the redirect names the app that caught it: the `brain` app's AUD means no path app matched. Still 302 on a `.well-known` path? Add that exact path to the `brain-wellknown` app |
+| 200 on `/` | the Brain app's Path isn't empty, or its policy isn't Allow |
+| 502 | nothing on port 8787: `systemctl --user status brain.service`, then the logs |
+| logged in, still refused | wrong `--cf-team` or `--cf-aud` |
+
+**Logins:** only the dashboard and connecting an app go through Access, once per Brain app session duration. Connected web agents use the engine's OAuth: 1-hour access tokens and 30-day refresh tokens, renewed on each refresh.
 
 ## Connect web agents
 
-| App | Where | Enter |
+| App | Where | Settings |
 |---|---|---|
-| [claude.ai](https://claude.com/docs/connectors/custom/remote-mcp) | Customize → Connectors → Add custom connector | `https://brain.example.com/mcp` · OAuth client: Claude's published identity |
-| [ChatGPT](https://developers.openai.com/plugins/deploy/connect-chatgpt) | chatgpt.com/plugins → + → Add custom MCP server | `https://brain.example.com/mcp` · OAuth |
+| [claude.ai](https://claude.com/docs/connectors/custom/remote-mcp) | Customize → Connectors → Add custom connector | URL `https://brain.example.com/mcp` · Authentication: Sign in now · OAuth client: Use Claude's published identity. Both show as Detected |
+| [ChatGPT](https://developers.openai.com/plugins/deploy/connect-chatgpt) | chatgpt.com/plugins → + → Add custom MCP server | URL `https://brain.example.com/mcp` · Authentication: OAuth · Advanced OAuth settings → Registration method: Client Identifier Metadata Document (CIMD) · client ID and secret empty · token endpoint auth method: none · scope: `offline_access` |
 
-Then sign in through Cloudflare Access and press Allow. Only these two apps can connect. Each app's plan and workspace limits still apply.
+A window opens: sign in with your email and the PIN Cloudflare sends, then press Allow on the brain's page. Only these two apps can connect. Each app's plan and workspace limits still apply.
+
+"Couldn't discover OAuth settings" means the `.well-known` paths still redirect: run step 7.
 
 | Tool | Does | Store |
 |---|---|---|
