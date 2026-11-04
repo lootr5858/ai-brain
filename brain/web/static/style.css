@@ -311,7 +311,6 @@ kbd { padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; color
 /* Title — org — dates → title, quiet detail line, description */
 .prose li:has(> .entry) { list-style: none; }
 .prose li:has(> .entry) + li { margin-top: .8em; }
-.prose ul:has(> li > .entry) { padding-left: 0; }
 .entry { display: grid; gap: .05rem; }
 .entry-t { font-weight: 700; }
 .entry-m { color: var(--dim); font-size: .92em; }
