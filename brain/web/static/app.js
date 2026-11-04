@@ -314,8 +314,10 @@ function storeLink(href, where) {
 
 const LABEL = /^\s*([^:\n()]{1,32}?):(?:\s+|$)/;
 const SEPARATOR = " · ";
+const DASH = " — ";
 const LONG_VALUE = 90;
 const SHORT_PART = 48;
+const TITLE_MAX = 60;
 const isText = (node) => node.nodeType === Node.TEXT_NODE;
 const textOf = (nodes) => nodes.map((node) => node.textContent).join("");
 
@@ -366,22 +368,53 @@ function tidy(nodes) {
   return kept;
 }
 
-// "a · b · c" → tags, when every part is short.
-function tags(nodes) {
-  if (!textOf(nodes).includes(SEPARATOR)) return null;
+// Inline nodes → parts at a separator, cutting text nodes only; null when the separator is absent.
+// Nothing moves here: parts hold new text nodes and references to the existing elements.
+function splitParts(nodes, separator) {
+  if (!textOf(nodes).includes(separator)) return null;
   const parts = [[]];
   for (const node of nodes) {
     if (!isText(node)) {
       parts.at(-1).push(node);
       continue;
     }
-    node.textContent.split(SEPARATOR).forEach((bit, index) => {
+    const bits = node.textContent.split(separator);
+    bits.forEach((bit, index) => {
       if (index) parts.push([]);
-      if (bit.trim()) parts.at(-1).push(document.createTextNode(bit));
+      if (bit.trim() || (bits.length === 1 && bit)) parts.at(-1).push(document.createTextNode(bit));
     });
   }
-  if (parts.some((part) => !part.length || textOf(part).trim().length > SHORT_PART)) return null;
+  return parts;
+}
+
+const tooLong = (part, max) => !textOf(part).trim() || textOf(part).trim().length > max;
+
+// "a · b · c" → tags, when every part is short.
+function tags(nodes) {
+  const parts = splitParts(nodes, SEPARATOR);
+  if (!parts || parts.some((part) => tooLong(part, SHORT_PART))) return null;
   return h("span", { class: "tags" }, parts.map((part) => h("span", { class: "tag" }, tidy(part))));
+}
+
+// "Title — org — dates. Description" → a bold title, a quiet detail line, then the description.
+function entry(nodes) {
+  const parts = splitParts(nodes, DASH);
+  if (!parts) return null;
+  const last = parts.at(-1);
+  let description = [];
+  const at = last.findIndex((node) => isText(node) && /\.\s+\S/.test(node.textContent));
+  if (at >= 0) {
+    const text = last[at].textContent;
+    const cut = text.search(/\.\s+\S/) + 1;
+    description = [document.createTextNode(text.slice(cut).trimStart()), ...last.slice(at + 1)];
+    last.splice(at, last.length - at, document.createTextNode(text.slice(0, cut)));
+  }
+  const [title, ...meta] = parts;
+  if (tooLong(title, TITLE_MAX) || meta.some((part) => tooLong(part, SHORT_PART))) return null;
+  return h("span", { class: "entry" },
+    h("span", { class: "entry-t" }, title),
+    h("span", { class: "entry-m" }, meta.map((part, index) => [index ? h("span", { class: "sep", "aria-hidden": "true" }, " · ") : null, tidy(part)])),
+    textOf(description).trim() ? h("span", { class: "entry-d" }, description) : null);
 }
 
 // A list where at least half the items are "Label: value" becomes label/value rows.
@@ -398,7 +431,7 @@ function shapeList(list) {
     return;
   }
   for (const { item, label, nested, inline } of parsed) {
-    const shaped = tags(inline);
+    const shaped = tags(inline) || (label ? null : entry(inline));
     if (shaped) {
       for (const node of inline) if (node.parentNode === item) node.remove();
       item.insertBefore(shaped, nested[0] || null);

@@ -308,6 +308,17 @@ kbd { padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; color
 .tag { display: inline-flex; align-items: baseline; padding: .02em .6em; border: 1px solid var(--line); border-radius: 999px; font-size: .93em; }
 .prose li > .tags { margin-top: .1rem; }
 
+/* Title — org — dates → title, quiet detail line, description */
+.prose li:has(> .entry) { list-style: none; }
+.prose li:has(> .entry) + li { margin-top: .8em; }
+.prose ul:has(> li > .entry) { padding-left: 0; }
+.entry { display: grid; gap: .05rem; }
+.entry-t { font-weight: 700; }
+.entry-m { color: var(--dim); font-size: .92em; }
+.entry-m .sep { opacity: .6; }
+.entry-d { margin-top: .15rem; }
+.prose li:has(> .entry) > ul { margin: .3rem 0 0; padding-left: 1.3rem; }
+
 /* Label: with a sub-list → a group */
 .group { margin: .5rem 0 .4rem; padding-left: 1rem; border-left: 2px solid var(--line); }
 .group-k { margin-bottom: .25rem; color: var(--dim); font-style: italic; }
