@@ -170,10 +170,70 @@ function setMain(...kids) {
   main.scrollTop = 0;
 }
 
+// ---- shell: sidebar and theme toggles, remembered per browser (theme.js applies them before paint)
+
+const SVG = "http://www.w3.org/2000/svg";
+const PANEL = [
+  ["rect", { x: "1.75", y: "2.75", width: "12.5", height: "10.5", rx: "2", fill: "none", stroke: "currentColor", "stroke-width": "1.4" }],
+  ["path", { d: "M6 3v10", stroke: "currentColor", "stroke-width": "1.4" }],
+];
+const HALF = [
+  ["circle", { cx: "8", cy: "8", r: "6.25", fill: "none", stroke: "currentColor", "stroke-width": "1.5" }],
+  ["path", { d: "M8 1.75a6.25 6.25 0 0 1 0 12.5z", fill: "currentColor" }],
+];
+const THEMES = ["system", "light", "dark"];
+const root = document.documentElement;
+const phone = () => matchMedia("(max-width: 767px)").matches;
+
+function icon(shapes) {
+  const svg = document.createElementNS(SVG, "svg");
+  for (const [key, value] of Object.entries({ viewBox: "0 0 16 16", width: "15", height: "15", "aria-hidden": "true" })) svg.setAttribute(key, value);
+  for (const [tag, attrs] of shapes) {
+    const shape = document.createElementNS(SVG, tag);
+    for (const [key, value] of Object.entries(attrs)) shape.setAttribute(key, value);
+    svg.append(shape);
+  }
+  return svg;
+}
+
+function remember(key, value) {
+  try {
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
+  } catch {
+    // Storage blocked: the choice lasts until the page reloads.
+  }
+}
+
+function toggleSide() {
+  if (phone()) {
+    document.body.classList.toggle("nav-open");
+    return;
+  }
+  const closing = root.dataset.side !== "closed";
+  if (closing) root.dataset.side = "closed";
+  else delete root.dataset.side;
+  remember("brain.side", closing ? "closed" : "");
+}
+
 const menuButton = () => h("button", {
-  type: "button", class: "ghost menu", "aria-label": "Show files",
-  on: { click: () => document.body.classList.add("nav-open") },
-}, "☰");
+  type: "button", class: "icon menu", "aria-label": "Show or hide the files", title: "Files  [",
+  on: { click: toggleSide },
+}, icon(PANEL));
+
+function themeButton() {
+  const current = () => root.dataset.theme || "system";
+  const pick = h("button", { type: "button", class: "icon", title: `Theme: ${current()}`, "aria-label": `Theme: ${current()}` }, icon(HALF));
+  pick.addEventListener("click", () => {
+    const next = THEMES[(THEMES.indexOf(current()) + 1) % THEMES.length];
+    if (next === "system") delete root.dataset.theme;
+    else root.dataset.theme = next;
+    remember("brain.theme", next === "system" ? "" : next);
+    pick.title = `Theme: ${next}`;
+    pick.setAttribute("aria-label", `Theme: ${next}`);
+  });
+  return pick;
+}
 
 function bar(path, chips, actions) {
   const parts = path.split("/");
@@ -182,7 +242,7 @@ function bar(path, chips, actions) {
     h("h1", { class: "crumbs", title: path },
       parts.slice(0, -1).map((part) => h("span", { class: "dim" }, `${part} / `)), parts.at(-1)),
     chips,
-    h("div", { class: "actions" }, actions));
+    h("div", { class: "actions" }, actions, themeButton()));
 }
 
 // ---- rendering a file's text
@@ -214,6 +274,7 @@ function renderMarkdown(text, where) {
   }
   const clean = DOMPurify.sanitize(marked.parse(body), PURIFY);
   tidyLinks(clean, where);
+  structure(clean);
   box.append(clean);
   return box;
 }
@@ -247,6 +308,131 @@ function storeLink(href, where) {
   }
 }
 
+// ---- structure: packed Markdown lines get visual shape
+// Runs on the fragment DOMPurify already cleaned. It only moves existing nodes and wraps them in elements
+// built here, so no file text is ever parsed as markup. The file itself is unchanged.
+
+const LABEL = /^\s*([^:\n()]{1,32}?):(?:\s+|$)/;
+const SEPARATOR = " · ";
+const LONG_VALUE = 90;
+const SHORT_PART = 48;
+const isText = (node) => node.nodeType === Node.TEXT_NODE;
+const textOf = (nodes) => nodes.map((node) => node.textContent).join("");
+
+function structure(fragment) {
+  for (const link of fragment.querySelectorAll("a[href]")) shortenUrl(link);
+  for (const list of [...fragment.querySelectorAll("ul")].filter((one) => !one.parentElement?.closest("li"))) shapeList(list);
+  sections(fragment);
+}
+
+// A bare URL shows without scheme, "www." and trailing "/"; the full one stays in the link and its title.
+function shortenUrl(link) {
+  const href = link.getAttribute("href") || "";
+  if (link.textContent !== href || !/^https?:\/\//i.test(href)) return;
+  let text = href.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/$/, "");
+  if (text.length > 38) text = `${text.slice(0, 26)}…${text.slice(-8)}`;
+  link.textContent = text;
+  link.title = href;
+}
+
+// "Label: value" → the label; the text node keeps the value. Labels are short: ≤ 32 chars, ≤ 4 words, no "(".
+function takeLabel(item) {
+  const first = item.firstChild;
+  if (!first || !isText(first)) return null;
+  const found = LABEL.exec(first.textContent);
+  if (!found || found[1].trim().split(/\s+/).length > 4) return null;
+  first.textContent = first.textContent.slice(found[0].length);
+  return found[1].trim();
+}
+
+// A short phrase loses its final "."; a closing "(…)" becomes a quiet note.
+function tidy(nodes) {
+  const kept = nodes.filter((node) => !isText(node) || node.textContent.trim());
+  const last = kept.at(-1);
+  if (!last || !isText(last)) return kept;
+  let text = last.textContent.replace(/\s+$/, "");
+  if (text.endsWith(".") && !/\.\s/.test(textOf(kept))) text = text.slice(0, -1);
+  const alone = /^\s*\(([^()]{1,40})\)$/.exec(text);
+  const after = /^(.*\S)\s+\(([^()]{1,40})\)$/.exec(text);
+  if (alone && kept.length > 1) {
+    last.textContent = "";
+    return [...kept.slice(0, -1), h("span", { class: "paren" }, alone[1])];
+  }
+  if (after) {
+    last.textContent = after[1];
+    return [...kept, h("span", { class: "paren" }, after[2])];
+  }
+  last.textContent = text;
+  return kept;
+}
+
+// "a · b · c" → tags, when every part is short.
+function tags(nodes) {
+  if (!textOf(nodes).includes(SEPARATOR)) return null;
+  const parts = [[]];
+  for (const node of nodes) {
+    if (!isText(node)) {
+      parts.at(-1).push(node);
+      continue;
+    }
+    node.textContent.split(SEPARATOR).forEach((bit, index) => {
+      if (index) parts.push([]);
+      if (bit.trim()) parts.at(-1).push(document.createTextNode(bit));
+    });
+  }
+  if (parts.some((part) => !part.length || textOf(part).trim().length > SHORT_PART)) return null;
+  return h("span", { class: "tags" }, parts.map((part) => h("span", { class: "tag" }, tidy(part))));
+}
+
+// A list where at least half the items are "Label: value" becomes label/value rows.
+function shapeList(list) {
+  const items = [...list.children].filter((child) => child.tagName === "LI");
+  const parsed = items.map((item) => {
+    for (const inner of item.querySelectorAll(":scope > ul")) shapeList(inner);
+    const nested = [...item.children].filter((child) => child.matches("ul, ol, .pairs"));
+    const label = takeLabel(item);
+    return { item, label, nested, inline: [...item.childNodes].filter((node) => !nested.includes(node)) };
+  });
+  if (items.length >= 2 && parsed.filter((one) => one.label).length * 2 >= items.length) {
+    list.replaceWith(h("div", { class: "pairs" }, parsed.map(pair)));
+    return;
+  }
+  for (const { item, label, nested, inline } of parsed) {
+    const shaped = tags(inline);
+    if (shaped) {
+      for (const node of inline) if (node.parentNode === item) node.remove();
+      item.insertBefore(shaped, nested[0] || null);
+    }
+    if (label) item.prepend(h("span", { class: "lbl" }, label));
+  }
+}
+
+function pair({ label, nested, inline }) {
+  const text = textOf(inline).trim();
+  if (label && nested.length && !text) return h("section", { class: "group" }, h("div", { class: "group-k" }, label), nested);
+  const value = h("div", { class: "pair-v" }, tags(inline) || tidy(inline), nested);
+  if (!label) return h("div", { class: "pair full" }, value);
+  return h("div", { class: text.length > LONG_VALUE ? "pair long" : "pair" }, h("div", { class: "pair-k" }, label), value);
+}
+
+// Each h2 and what follows it, up to the next h1 or h2, folds.
+function sections(fragment) {
+  const out = [];
+  let body = null;
+  for (const node of [...fragment.childNodes]) {
+    if (node.nodeName === "H2") {
+      body = h("div", { class: "sec-body" });
+      out.push(h("details", { class: "sec", open: true }, h("summary", null, h("h2", null, [...node.childNodes])), body));
+    } else if (body && node.nodeName !== "H1") {
+      body.append(node);
+    } else {
+      if (node.nodeName === "H1") body = null;
+      out.push(node);
+    }
+  }
+  fragment.replaceChildren(...out);
+}
+
 const isMap = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const isPlain = (value) => value === null || typeof value !== "object";
 const isBlank = (value) => value == null || value === "" || value === "null" || value === "~";
@@ -267,11 +453,12 @@ function renderYaml(text) {
 
 function value(item) {
   if (Array.isArray(item)) {
-    if (item.every(isPlain)) return h("span", { class: "chips" }, item.map((one) => h("span", { class: "chip" }, String(one))));
+    if (item.every(isPlain)) return h("span", { class: "tags" }, item.map((one) => h("span", { class: "tag" }, String(one))));
     return h("div", { class: "stack" }, item.map(value));
   }
   if (isMap(item)) return keyValues(item);
-  return isBlank(item) ? h("span", { class: "dim" }, "—") : h("span", { class: "text" }, String(item));
+  if (isBlank(item)) return h("span", { class: "nil" }, "—");
+  return statusChip(item) || h("span", { class: "text" }, String(item));
 }
 
 const keyValues = (map) => h("dl", { class: "kv" },
@@ -291,17 +478,49 @@ function columnsFor(rows) {
   const keys = [...values]
     .filter(([, found], index) => found.length * 2 >= rows.length && (index === 0 || !identifier(found)))
     .map(([key]) => key);
-  return (keys.length ? keys : [...values.keys()]).slice(0, MAX_COLUMNS);
+  return keys.length ? keys : [...values.keys()];
+}
+
+// Status words get a tinted chip; the word always shows, so colour is never the only signal.
+const TONES = {
+  good: ["active", "current", "done", "enabled", "ok", "yes"],
+  mid: ["spare", "lent-out", "paused", "on-hold", "pending", "planned", "trial"],
+  end: ["dead", "disposed", "sold", "gifted-away", "cancelled", "canceled", "retired", "expired", "inactive"],
+};
+const toneOf = (item) => (isPlain(item) && !isBlank(item)
+  ? Object.keys(TONES).find((tone) => TONES[tone].includes(String(item).toLowerCase()))
+  : undefined);
+const isNumber = (item) => isPlain(item) && /^-?\d+(\.\d+)?$/.test(String(item));
+const isCode = (item) => isPlain(item) && /^[A-Z]{3}$/.test(String(item));
+
+function statusChip(item) {
+  const tone = toneOf(item);
+  return tone ? h("span", { class: `st st-${tone}` }, String(item)) : null;
+}
+
+// A number column followed by a column of 3-letter codes (SGD, USD) shows as one: 10.98 SGD.
+function unitOf(rows, order, key) {
+  const next = order[order.indexOf(key) + 1];
+  const filled = (name) => rows.map((row) => row[name]).filter((item) => !isBlank(item));
+  const numbers = filled(key);
+  const codes = next ? filled(next) : [];
+  return numbers.length && numbers.every(isNumber) && codes.length && codes.every(isCode) ? next : null;
 }
 
 function records(rows) {
-  const columns = columnsFor(rows);
+  const order = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+  const units = new Map(order.map((key) => [key, unitOf(rows, order, key)]).filter(([, unit]) => unit));
+  const columns = columnsFor(rows).filter((key) => ![...units.values()].includes(key)).slice(0, MAX_COLUMNS);
+  const numeric = new Set(columns.slice(1).filter((key) =>
+    rows.some((row) => !isBlank(row[key])) && rows.every((row) => isBlank(row[key]) || isNumber(row[key]))));
+  const status = columns.find((key) => rows.filter((row) => toneOf(row[key])).length * 2 >= rows.length);
+  let only = null;
   const body = h("tbody");
-  const count = h("span", { class: "dim" });
+  const count = h("span", { class: "count" });
   const entries = rows.map((row) => {
-    const entry = { search: JSON.stringify(row).toLowerCase(), detail: null };
+    const entry = { data: row, search: JSON.stringify(row).toLowerCase(), detail: null };
     const toggle = h("button", { type: "button", class: "twist", "aria-expanded": "false" },
-      h("span", { class: "arrow", "aria-hidden": "true" }, "▸"), cell(row[columns[0]]));
+      h("span", { class: "arrow", "aria-hidden": "true" }, "›"), cell(row, columns[0]));
     entry.row = h("tr", {
       class: "row",
       on: {
@@ -313,26 +532,55 @@ function records(rows) {
           else entry.detail.remove();
         },
       },
-    }, h("td", null, toggle), columns.slice(1).map((key) => h("td", { title: String(row[key] ?? "") }, cell(row[key]))));
+    }, h("td", null, toggle), columns.slice(1).map((key) =>
+      h("td", { class: numeric.has(key) ? "num" : null, title: String(row[key] ?? "") }, cell(row, key, units.get(key)))));
     return entry;
   });
   const apply = () => {
     const needle = filter.value.trim().toLowerCase();
-    const shown = entries.filter((entry) => !needle || entry.search.includes(needle));
+    const shown = entries.filter((entry) =>
+      (!needle || entry.search.includes(needle)) && (only === null || String(entry.data[status]) === only));
     const expanded = (entry) => (entry.row.querySelector(".twist").getAttribute("aria-expanded") === "true" ? [entry.row, entry.detail] : [entry.row]);
     body.replaceChildren(...shown.flatMap(expanded));
-    count.textContent = needle ? `${shown.length} of ${rows.length}` : `${rows.length} items`;
+    count.textContent = shown.length === rows.length ? `${rows.length} items` : `${shown.length} of ${rows.length}`;
   };
   const filter = h("input", { class: "filter", type: "search", placeholder: "Filter", "aria-label": "Filter rows", on: { input: apply } });
   apply();
   return h("div", { class: "records" },
-    h("div", { class: "tools" }, filter, count),
+    h("div", { class: "tools" }, filter, status && tally(rows, status, (word) => { only = word; apply(); }), count),
     h("div", { class: "table-wrap" }, h("table", null,
-      h("thead", null, h("tr", null, columns.map((key) => h("th", { scope: "col" }, label(key))))),
+      h("thead", null, h("tr", null, columns.map((key) => h("th", { scope: "col", class: numeric.has(key) ? "num" : null }, label(key))))),
       body)));
 }
 
-const cell = (item) => (isBlank(item) ? h("span", { class: "dim" }, "—") : isPlain(item) ? String(item) : h("span", { class: "dim" }, "…"));
+// One button per status value with its count; pressing one shows only those rows, pressing it again shows all.
+function tally(rows, key, choose) {
+  const counts = new Map();
+  for (const row of rows) {
+    if (!isBlank(row[key]) && isPlain(row[key])) counts.set(String(row[key]), (counts.get(String(row[key])) || 0) + 1);
+  }
+  const group = h("div", { class: "tally", role: "group", "aria-label": `Show only one ${label(key)}` });
+  for (const [word, total] of counts) {
+    const pick = h("button", { type: "button", "aria-pressed": "false" }, statusChip(word) || h("span", { class: "chip" }, word), h("b", null, String(total)));
+    pick.addEventListener("click", () => {
+      const on = pick.getAttribute("aria-pressed") !== "true";
+      for (const other of group.children) other.setAttribute("aria-pressed", String(on && other === pick));
+      choose(on ? word : null);
+    });
+    group.append(pick);
+  }
+  return group;
+}
+
+function cell(row, key, unit) {
+  const item = row[key];
+  if (isBlank(item)) return h("span", { class: "nil" }, "—");
+  if (!isPlain(item)) return h("span", { class: "dim" }, "…");
+  const chip = statusChip(item);
+  if (chip) return chip;
+  if (unit && !isBlank(row[unit])) return [String(item), h("span", { class: "unit" }, ` ${row[unit]}`)];
+  return String(item);
+}
 
 // ---- reading
 
@@ -363,7 +611,7 @@ function showReader() {
   const body = renderText(path, text, { store, path });
   setMain(
     bar(path, writable ? dirtyChip(dirty) : h("span", { class: "chip" }, "view only"),
-      writable && [button("History", showHistory), button("Edit", startEdit, "primary")]),
+      writable && [button("History", showHistory), button("Edit", startEdit)]),
     h("article", { class: `page${body.classList.contains("records") ? " wide" : ""}` }, body),
   );
 }
@@ -372,7 +620,7 @@ function showReader() {
 
 function startEdit() {
   const { path, text, hash } = state.file;
-  const area = h("textarea", { class: "code", spellcheck: "false", wrap: /\.ya?ml$/i.test(path) ? "off" : "soft", "aria-label": `Text of ${path}` });
+  const area = h("textarea", { class: /\.(md|markdown)$/i.test(path) ? "code prose-font" : "code", spellcheck: "false", wrap: /\.ya?ml$/i.test(path) ? "off" : "soft", "aria-label": `Text of ${path}` });
   area.value = text;
   openEditor({ path: () => path, base: hash, original: text, area }, h("h1", { class: "crumbs", title: path }, h("span", { class: "dim" }, "Editing "), path));
 }
@@ -388,7 +636,7 @@ function showNew() {
     const given = name.value.trim();
     return given && (folder.value ? `${folder.value}/${given}` : given);
   };
-  const area = h("textarea", { class: "code", spellcheck: "false", "aria-label": "Text of the new file" });
+  const area = h("textarea", { class: "code prose-font", spellcheck: "false", "aria-label": "Text of the new file" });
   const editor = { path, original: "", area, create: true };
   name.addEventListener("input", () => editor.draw());
   folder.addEventListener("change", () => editor.draw());
@@ -544,7 +792,8 @@ async function showSearch(query) {
   state.mode = "search";
   document.title = "Search · Brain";
   if (document.activeElement !== searchBox) searchBox.value = query;
-  const heading = () => h("header", { class: "bar" }, menuButton(), h("h1", { class: "crumbs" }, h("span", { class: "dim" }, "Search "), query));
+  const heading = () => h("header", { class: "bar" }, menuButton(), h("h1", { class: "crumbs" }, h("span", { class: "dim" }, "Search "), query),
+    h("div", { class: "actions" }, themeButton()));
   let hits;
   try {
     hits = await api("GET", "/api/search", { q: query });
@@ -613,10 +862,16 @@ function disclosure(key, opened, summary, kids, title) {
 
 function drawFolder(node, prefix) {
   return [
-    node.files.map((file) => h("a", { href: route("user", file.path) }, file.name,
+    node.files.map((file) => h("a", { href: route("user", file.path) }, fileName(file.name),
       file.dirty && h("span", { class: "dot", title: "Uncommitted changes" }))),
     [...node.folders].map(([name, child]) => disclosure(`user:${prefix}${name}`, true, name, drawFolder(child, `${prefix}${name}/`))),
   ];
+}
+
+// "profile.md" → "profile" with a quiet ".md".
+function fileName(name) {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? [name.slice(0, dot), h("span", { class: "ext" }, name.slice(dot))] : [name];
 }
 
 function drawTree() {
@@ -625,7 +880,7 @@ function drawTree() {
     ...drawFolder(folderOf(state.tree.user), "").flat(Infinity),
     h("h2", null, "Skills", h("small", null, "view only")),
     ...state.tree.skills.map((skill) => disclosure(`skill:${skill.name}`, false, skill.name,
-      skill.files.map((file) => h("a", { href: route("skills", `${skill.name}/${file}`) }, file)), skill.description)),
+      skill.files.map((file) => h("a", { href: route("skills", `${skill.name}/${file}`) }, fileName(file))), skill.description)),
   );
   markCurrent();
 }
@@ -679,6 +934,18 @@ window.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && state.editor) {
     event.preventDefault();
     saveEditor();
+    return;
+  }
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || "");
+  if (typing || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (event.key === "/") {
+    event.preventDefault();
+    if (phone()) document.body.classList.add("nav-open");
+    else if (root.dataset.side === "closed") toggleSide();
+    searchBox.focus();
+  } else if (event.key === "[") {
+    event.preventDefault();
+    toggleSide();
   }
 });
 
