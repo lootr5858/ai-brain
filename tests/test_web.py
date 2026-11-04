@@ -119,12 +119,20 @@ class GateTest(WebCase):
                 self.assertIn("default-src 'none'", headers["content-security-policy"])
                 self.assertIn("script-src 'self'", headers["content-security-policy"])
                 self.assertIn("img-src 'self'", headers["content-security-policy"])
+                self.assertIn("font-src 'self'", headers["content-security-policy"])
                 self.assertIn("frame-ancestors 'none'", headers["content-security-policy"])
                 self.assertEqual(headers["x-content-type-options"], "nosniff")
                 self.assertEqual(headers["referrer-policy"], "no-referrer")
         self.assertEqual(self.client.get("/api/tree", headers=OWNER).headers["cache-control"], "no-store")
         self.assertEqual(self.client.get("/", headers=OWNER).headers["cache-control"], "no-cache")
         self.assertIn("default-src 'none'", self.client.get("/api/tree").headers["content-security-policy"])
+
+    def test_fonts_are_served_to_the_owner_only(self):
+        path = "/vendor/fonts/iAWriterQuattroS-Regular.woff2"
+        response = self.client.get(path, headers=OWNER)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["content-type"], "font/woff2")
+        self.assertEqual(self.client.get(path).status_code, 403)
 
     def test_public_paths_stay_public(self):
         self.assertEqual(self.client.get("/.well-known/oauth-authorization-server").status_code, 200)
