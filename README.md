@@ -4,8 +4,8 @@ Serves your brain to AI agents: rules, skills, and personal knowledge, kept in t
 
 | Folder | Holds | Git |
 |---|---|---|
-| `engine/` | this code, no personal data | public repo |
-| `agents/` | agent rules and skills | your repo |
+| `engine/` | engine code | public repo |
+| `agents/` | agent rules, skills and plugins | public rules repo; nested repos independent |
 | `user/` | personal knowledge | your repo, local is enough |
 
 ```text
@@ -269,4 +269,8 @@ Store changes need no restart.
 
 ## Public repo
 
-Never commit stores, secrets, or state here. Server state lives in `~/.local/state/brain/` (`XDG_STATE_HOME`), outside the repo. Licence: MIT.
+This repo publishes the engine's public source. Ignored local files are not part of that publication.
+
+Before Git operations or credential setup in a Brain checkout, read the shared rules in `../agents/governance/mutation.md`.
+
+Server state lives in `~/.local/state/brain/` (`XDG_STATE_HOME`), outside the repo. Licence: MIT.
