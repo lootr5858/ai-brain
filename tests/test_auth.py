@@ -1,9 +1,8 @@
-"""OAuth flow on the real app: Cloudflare check, CIMD, consent, code, tokens, /mcp."""
+"""OAuth flow on the real app: Cloudflare check, fixed client table, consent, code, tokens, /mcp."""
 from __future__ import annotations
 
 import base64
 import hashlib
-import io
 import logging
 import re
 import stat
@@ -12,7 +11,6 @@ import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest import mock
 from urllib.parse import parse_qs, urlsplit
 
 import jwt
@@ -29,6 +27,8 @@ CLAUDE = "https://claude.ai/oauth/mcp-oauth-client-metadata"
 CALLBACK = "https://claude.ai/api/mcp/auth_callback"
 CHATGPT = "https://chatgpt.com/oauth/client.json"
 CHATGPT_CALLBACK = "https://chatgpt.com/connector_platform_oauth_redirect"
+GROK_BOT = "https://cursor.com/oauth/client.json"
+GROK_BOT_CALLBACK = "https://www.cursor.com/bot/mcp/oauth/callback"
 TEAM = "team.cloudflareaccess.com"
 AUD = "aud-tag"
 VERIFIER = "v" * 50
@@ -63,20 +63,11 @@ class AuthCase(unittest.TestCase):
         (self.brain / "agents" / "README.md").write_text("# Agents\n")
         (self.brain / "user" / "profile.md").write_text("Name: Sam\n")
         repo(self.brain / "user")
-        self.fetched: list[str] = []
-        self.documents = {
-            CLAUDE: {"client_id": CLAUDE, "redirect_uris": [CALLBACK]},
-            CHATGPT: {"client_id": CHATGPT, "redirect_uris": [CHATGPT_CALLBACK]},
-        }
-        self.oauth = auth.OAuth(ISSUER, SECRET, access_check(), fetch=self.fetch)
+        self.oauth = auth.OAuth(ISSUER, SECRET, access_check())
         client = TestClient(app.create(self.brain, self.oauth), base_url=ISSUER, follow_redirects=False)
         client.__enter__()
         self.addCleanup(client.__exit__, None, None, None)
         self.client = client
-
-    def fetch(self, url: str) -> dict:
-        self.fetched.append(url)
-        return self.documents[url] if url in self.documents else (_ for _ in ()).throw(OSError("no such document"))
 
     def params(self, **changes) -> dict:
         params = {"response_type": "code", "client_id": CLAUDE, "redirect_uri": CALLBACK, "state": "st8",
@@ -169,7 +160,6 @@ class OwnerTest(AuthCase):
             with self.subTest(name):
                 self.assertEqual(self.client.get("/authorize", params=self.params(), headers=headers).status_code, 403)
                 self.assertEqual(self.client.post("/authorize", data={"decision": "allow"}, headers=headers).status_code, 403)
-        self.assertEqual(self.fetched, [])
 
     def test_key_server_failure_refused(self):
         def down(token):
@@ -179,35 +169,21 @@ class OwnerTest(AuthCase):
 
 
 class ClientTest(AuthCase):
-    def test_unknown_clients_never_fetched(self):
+    def test_unknown_clients_refused(self):
         for client_id in ("https://evil.example/client.json", "http://claude.ai/x", "https://claude.ai@evil.example/x",
                           "https://claude.ai:8443/x", "https://claude.ai/", "https://claude.ai/x#f", "", "https://[bad"):
             with self.subTest(client_id):
                 self.assertEqual(self.consent(client_id=client_id).status_code, 400)
-        self.assertEqual(self.fetched, [])
 
-    def test_bad_documents_refused(self):
-        wrong = "https://claude.ai/wrong"
-        self.documents[wrong] = {"client_id": CLAUDE, "redirect_uris": [CALLBACK]}
-        self.documents["https://claude.ai/other"] = {"client_id": "https://claude.ai/other", "redirect_uris": ["https://evil.example/cb"]}
-        for client_id in (wrong, "https://claude.ai/other", "https://claude.ai/missing"):
-            with self.subTest(client_id):
-                self.assertEqual(self.consent(client_id=client_id).status_code, 400)
-
-    def test_redirect_must_be_in_document_and_allowlist(self):
-        self.documents[CLAUDE]["redirect_uris"].append("https://claude.ai/not-allowed")
-        for uri in ("https://evil.example/cb", "https://claude.ai/not-allowed", CHATGPT_CALLBACK, ""):
+    def test_redirect_must_be_in_table(self):
+        for uri in ("https://evil.example/cb", "https://claude.ai/not-allowed", ""):
             with self.subTest(uri):
                 self.assertEqual(self.consent(redirect_uri=uri).status_code, 400)
 
-    def test_document_cached(self):
-        self.consent()
-        self.consent()
-        self.assertEqual(self.fetched, [CLAUDE])
-
-    def test_both_apps_connect(self):
+    def test_all_apps_connect(self):
         self.signed_request()
         self.signed_request(client_id=CHATGPT, redirect_uri=CHATGPT_CALLBACK)
+        self.signed_request(client_id=GROK_BOT, redirect_uri=GROK_BOT_CALLBACK)
 
 
 class ConsentTest(AuthCase):
@@ -370,27 +346,6 @@ class BearerTest(AuthCase):
         self.assertIn("Saved profile.md", response.text)
         self.assertEqual(git(self.brain / "user", "log", "-1", "--format=%s%n%b").splitlines()[:2],
                          ["edit profile.md", "via claude.ai"])
-
-
-class FetchTest(unittest.TestCase):
-    def fetch(self, body: bytes) -> dict:
-        with mock.patch("urllib.request.urlopen", return_value=io.BytesIO(body)) as urlopen:
-            document = auth.fetch_document(CLAUDE)
-        self.assertEqual(urlopen.call_args.args[0].full_url, CLAUDE)
-        self.assertIn("timeout", urlopen.call_args.kwargs)
-        return document
-
-    def test_document_returned(self):
-        self.assertEqual(self.fetch(b'{"client_id": "x"}'), {"client_id": "x"})
-
-    def test_oversize_refused(self):
-        with self.assertRaisesRegex(ValueError, "too large"):
-            self.fetch(b" " * (auth.MAX_DOCUMENT + 1))
-
-    def test_anything_but_an_object_refused(self):
-        for body in (b"[]", b'"text"', b"not json"):
-            with self.subTest(body=body), self.assertRaises(ValueError):
-                self.fetch(body)
 
 
 class SecretTest(unittest.TestCase):

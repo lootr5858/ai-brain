@@ -1,18 +1,15 @@
 """OAuth for the remote MCP server: one owner, no stored clients, signed tokens.
 
-Clients identify themselves with a Client ID Metadata Document (CIMD). The owner approves each
-connection at /authorize, which Cloudflare Access guards and the engine checks again. Codes and
-tokens are JWTs signed with one secret, so deleting the secret revokes everything.
+Apps are admitted by the fixed table below and their client documents are never fetched. The
+owner approves each connection at /authorize, which Cloudflare Access guards and the engine checks
+again. Codes and tokens are JWTs signed with one secret, so deleting the secret revokes everything.
 """
 from __future__ import annotations
 
 import html
-import http.client
-import json
 import os
 import secrets
 import time
-import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -29,18 +26,19 @@ from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Re
 from starlette.routing import Route, request_response
 
 # Only these apps may connect, and codes only ever go back to them.
-CLIENT_HOSTS = {"claude.ai", "chatgpt.com"}
+CLIENT_HOSTS = {"claude.ai", "chatgpt.com", "cursor.com", "grok.com"}
 REDIRECTS = {
     "https://claude.ai/api/mcp/auth_callback",
     "https://chatgpt.com/connector_platform_oauth_redirect",
+    "https://www.cursor.com/agents/mcp/oauth/callback",
+    "https://www.cursor.com/bot/mcp/oauth/callback",
+    "https://grok.com/connectors-oauth-exchange-code/",
 }
 ACCESS_HEADER = "cf-access-jwt-assertion"
 CONSENT_TTL = 600
 CODE_TTL = 300
 ACCESS_TTL = 3600
 REFRESH_TTL = 30 * 86400
-CLIENT_TTL = 3600
-MAX_DOCUMENT = 64 * 1024
 MAX_TOKEN_REQUEST = 64 * 1024
 PAGE = """<!doctype html>
 <meta charset="utf-8">
@@ -65,19 +63,6 @@ def load_secret(state: Path) -> str:
         with os.fdopen(descriptor, "w") as file:
             file.write(secrets.token_urlsafe(48))
     return path.read_text().strip()
-
-
-def fetch_document(url: str) -> dict:
-    """Fetch a client's metadata document, bounded in time and size."""
-    request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "brain-engine"})
-    with urllib.request.urlopen(request, timeout=5) as response:
-        body = response.read(MAX_DOCUMENT + 1)
-    if len(body) > MAX_DOCUMENT:
-        raise ValueError("client metadata document too large")
-    document = json.loads(body)
-    if not isinstance(document, dict):
-        raise ValueError("client metadata document is not an object")
-    return document
 
 
 class AccessCheck:
@@ -110,12 +95,10 @@ def _page(body: str, status: int = 200) -> HTMLResponse:
 class OAuth:
     """The authorization server: /authorize is ours, /token runs on the SDK's handler over these methods."""
 
-    def __init__(self, public_url: str, secret: str, owner: Callable[[str], str | None],
-                 fetch: Callable[[str], dict] = fetch_document):
+    def __init__(self, public_url: str, secret: str, owner: Callable[[str], str | None]):
         self.issuer = public_url.rstrip("/")
         self.resource = f"{self.issuer}/mcp"
-        self.secret, self.owner, self.fetch = secret, owner, fetch
-        self._clients: dict[str, tuple[float, OAuthClientInformationFull]] = {}
+        self.secret, self.owner = secret, owner
         self._spent: dict[str, int] = {}
 
     def routes(self) -> list[Route]:
@@ -191,29 +174,17 @@ class OAuth:
         return RedirectResponse(url, 302, {"Cache-Control": "no-store"})
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
-        """Resolve a client from its document; hosts outside the allowlist are never fetched."""
+        """Admit a client by the fixed table; its document is never fetched."""
         try:
             parts = urlsplit(client_id)
         except ValueError:
             return None
         if parts.scheme != "https" or parts.netloc not in CLIENT_HOSTS or parts.fragment or not parts.path.strip("/"):
             return None
-        cached = self._clients.get(client_id)
-        if cached and cached[0] > time.time():
-            return cached[1]
-        try:
-            document = await run_in_threadpool(self.fetch, client_id)
-        except (OSError, ValueError, http.client.HTTPException):
-            return None
-        redirects = [uri for uri in document.get("redirect_uris", []) if uri in REDIRECTS]
-        if document.get("client_id") != client_id or not redirects:
-            return None
-        client = OAuthClientInformationFull(
-            client_id=client_id, redirect_uris=redirects, token_endpoint_auth_method="none",
+        return OAuthClientInformationFull(
+            client_id=client_id, redirect_uris=sorted(REDIRECTS), token_endpoint_auth_method="none",
             grant_types=["authorization_code", "refresh_token"], response_types=["code"],
         )
-        self._clients[client_id] = (time.time() + CLIENT_TTL, client)
-        return client
 
     async def load_authorization_code(self, client, code: str) -> AuthorizationCode | None:
         claims = self._open(code, "code")

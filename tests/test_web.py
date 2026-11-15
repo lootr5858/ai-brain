@@ -45,7 +45,7 @@ class WebCase(unittest.TestCase):
         (self.user / "profile.md").write_text("Name: Sam\n")
         (self.user / "inventory" / "items.yaml").write_text("- name: laptop\n")
         repo(self.user)
-        oauth = auth.OAuth(ISSUER, SECRET, access_check(), fetch=lambda url: {})
+        oauth = auth.OAuth(ISSUER, SECRET, access_check())
         client = TestClient(app.create(self.brain, oauth), base_url=ISSUER, follow_redirects=False)
         client.__enter__()
         self.addCleanup(client.__exit__, None, None, None)
