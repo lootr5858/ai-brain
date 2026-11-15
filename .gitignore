@@ -29,6 +29,7 @@
 !/brain/web/static/icon.svg
 !/brain/web/static/index.html
 !/brain/web/static/style.css
+!/brain/web/static/theme.js
 
 !/brain/web/static/vendor/
 /brain/web/static/vendor/*
@@ -39,6 +40,14 @@
 !/brain/web/static/vendor/marked.LICENSE
 !/brain/web/static/vendor/marked.umd.js
 !/brain/web/static/vendor/purify.min.js
+
+!/brain/web/static/vendor/fonts/
+/brain/web/static/vendor/fonts/*
+!/brain/web/static/vendor/fonts/iA-Writer-Quattro.LICENSE
+!/brain/web/static/vendor/fonts/iAWriterQuattroS-Bold.woff2
+!/brain/web/static/vendor/fonts/iAWriterQuattroS-BoldItalic.woff2
+!/brain/web/static/vendor/fonts/iAWriterQuattroS-Italic.woff2
+!/brain/web/static/vendor/fonts/iAWriterQuattroS-Regular.woff2
 
 !/tests/
 /tests/*
